@@ -2,33 +2,21 @@ defmodule Managoat.Runtimes.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/BinaryBourbon/fountain/tree/main/apps/managoat_runtimes"
+  @source_url "https://github.com/managoat/managoat_runtimes"
 
   def project do
     [
       app: :managoat_runtimes,
       version: @version,
-      # Umbrella-first (decisions/0037): this app builds into the umbrella's
-      # _build and deps and shares its lockfile while it lives here. The three
-      # path lines go when it graduates to a managoat/<name> repository.
-      #
-      # Deliberately no `config_path` pointing at the umbrella's config: that
-      # config is Fountain's (config/runtime.exs calls Fountain modules), and
-      # this library reads no configuration at all. Credentials arrive as an
-      # argument to `default_env/2`, the skills to install as an argument to
-      # `Skills.install/3`, and the one timeout that used to be read here (how
-      # long a held permission waits for a human) is the host's to read and
-      # pass to the peer. Run from this directory the app boots with no
-      # config, which is what a consumer of the hex package gets too.
-      build_path: "../../_build",
-      deps_path: "../../deps",
-      lockfile: "../../mix.lock",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
         "How a coding agent CLI (claude, codex, gemini, opencode) gets into a sandbox and comes up speaking ACP: the adapter pins, the file layout, the instructions file, the credential env vars, the skills tree, and the per-runtime workarounds with their deletion conditions.",
       package: package(),
+      source_url: @source_url,
+      docs: docs(),
+      dialyzer: dialyzer(),
       test_coverage: [
         # What this suite measures on its own: 94.19% on the first
         # `mix test --cover` run after extraction (#1368), with the runtimes'
@@ -47,6 +35,16 @@ defmodule Managoat.Runtimes.MixProject do
 
   defp deps do
     [
+      # Tooling for the repository, not the package: docs for hexdocs.pm (built
+      # by `mix hex.publish`), credo and dialyzer for CI. dialyxir is pinned to
+      # the commit that added OTP 28 support; 1.4.7 crashes on OTP 28 warnings.
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir,
+       github: "jeremyjh/dialyxir",
+       ref: "3553678f4d69281ac6db61034bcf35bcb30cfd78",
+       only: [:dev, :test],
+       runtime: false},
       # The sandbox the runtimes are provisioned into: exec, write_file,
       # spawn, the Handle and Retry. Both directions decisions/0037 pins.
       {:managoat_sandbox, "~> 0.1.0"},
@@ -63,10 +61,27 @@ defmodule Managoat.Runtimes.MixProject do
   defp package do
     [
       licenses: ["Apache-2.0"],
-      links: %{"GitHub" => @source_url},
+      links: %{"GitHub" => @source_url, "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"},
       # priv/ carries the gemini session-store consolidation script, which
       # Gemini.SessionStore embeds at compile time.
-      files: ~w(lib priv mix.exs README.md LICENSE)
+      files: ~w(lib priv mix.exs README.md CHANGELOG.md LICENSE NOTICE)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md"],
+      source_ref: "v#{@version}",
+      source_url: @source_url
+    ]
+  end
+
+  defp dialyzer do
+    [
+      ignore_warnings: ".dialyzer_ignore.exs",
+      # A fixed path so CI can cache the PLT across runs.
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 end
