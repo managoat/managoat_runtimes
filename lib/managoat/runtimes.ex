@@ -39,8 +39,34 @@ defmodule Managoat.Runtimes do
       The env var's *name* belongs to the runtime-and-provider pair rather
       than to the provider: a Google key is `GEMINI_API_KEY` for the gemini
       runtime and `GOOGLE_GENERATIVE_AI_API_KEY` for opencode, which reaches
-      Google through `@ai-sdk/google`. See `default_env/2` and
-      `prepare_sandbox/3`.
+      Google through `@ai-sdk/google`. See `c:default_env/2` and
+      `c:prepare_sandbox/3`.
+
+  ## Calling the optional callbacks
+
+  Four callbacks are optional and the implementation matrix is genuinely
+  sparse, so a host has to guard the call — and the obvious guard is wrong:
+
+      # WRONG: silently no-ops in an escript or a release
+      if function_exported?(mod, :default_env, 2), do: mod.default_env(agent, creds), else: []
+
+  `function_exported?/3` answers `false` for a module that is merely **not
+  loaded yet**, which is the normal state of any module nobody has called
+  under an escript or a release. It has already cost one host a provisioning
+  run that reported every stage green and then failed on an authentication
+  error, because `Managoat.Runtimes.Claude` was unloaded rather than because
+  it was missing `default_env/2` — which it implements, as do all four
+  runtimes.
+
+  So dispatch through the functions here instead. They load the module first
+  and fall back to the documented no-op:
+
+      env = Managoat.Runtimes.default_env(mod, agent, credentials)   # or []
+      :ok = Managoat.Runtimes.write_config(mod, handle, agent)       # or :ok
+      :ok = Managoat.Runtimes.prepare_sandbox(mod, handle, agent, env)
+
+  `c:build_command/5` has no default to fall back to; ask
+  `implements?/3` and decide.
   """
 
   @type mode :: :run | :continue
@@ -82,6 +108,11 @@ defmodule Managoat.Runtimes do
   - `mode == :run` for the first turn
   - `mode == :continue` for subsequent turns
   - `runtime_session_id` is the runtime CLI's own session id used for resume
+
+  Optional, and the one optional callback with no dispatcher — there is no
+  argv to fall back to. Guard it with `implements?/3` rather than
+  `function_exported?/3`; see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
   """
   @callback build_command(
               agent :: agent(),
@@ -124,6 +155,11 @@ defmodule Managoat.Runtimes do
   So the shape is two-of-four, not four-of-four: an env var, or a login exec.
   Worth restating whenever a fifth runtime arrives, because "just add a column
   for the variable name" is right up until it is codex.
+
+  Optional, so call it through `default_env/3`, which is the loaded-first
+  dispatcher — not through a `function_exported?/3` guard, which no-ops it
+  in an escript or a release. See
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
   """
   @callback default_env(
               agent :: agent(),
@@ -134,6 +170,9 @@ defmodule Managoat.Runtimes do
   Optionally write runtime-specific config files into the sprite at
   provision time (e.g. claude's `~/.claude.json` for MCP servers).
   No-op by default.
+
+  Optional, so call it through `write_config/3` — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
   """
   @callback write_config(handle :: Managoat.Sandbox.Handle.t(), agent :: agent() | nil) ::
               :ok | {:error, term()}
@@ -163,6 +202,9 @@ defmodule Managoat.Runtimes do
   to the sandbox, opencode's `bun install` here needs the npm registry on the
   allowlist of any restricted one. It works today because the default is
   unrestricted.
+
+  Optional, so call it through `prepare_sandbox/4` — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
   """
   @callback prepare_sandbox(
               handle :: Managoat.Sandbox.Handle.t(),
@@ -203,6 +245,71 @@ defmodule Managoat.Runtimes do
     case Map.fetch(@runtime_modules, name) do
       {:ok, mod} -> {:ok, mod}
       :error -> {:error, "unsupported runtime: #{name}"}
+    end
+  end
+
+  @doc """
+  Dispatch `c:default_env/2`, or `[]` when the runtime does not implement it.
+
+  Use this rather than guarding the call yourself — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @spec default_env(module(), agent(), %{atom() => String.t()}) :: [{String.t(), String.t()}]
+  def default_env(mod, agent, inference_credentials) when is_atom(mod),
+    do: dispatch(mod, :default_env, [agent, inference_credentials], [])
+
+  @doc """
+  Dispatch `c:write_config/2`, or `:ok` when the runtime does not implement it.
+
+  Use this rather than guarding the call yourself — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @spec write_config(module(), Managoat.Sandbox.Handle.t(), agent() | nil) ::
+          :ok | {:error, term()}
+  def write_config(mod, handle, agent) when is_atom(mod),
+    do: dispatch(mod, :write_config, [handle, agent], :ok)
+
+  @doc """
+  Dispatch `c:prepare_sandbox/3`, or `:ok` when the runtime does not
+  implement it.
+
+  Use this rather than guarding the call yourself — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @spec prepare_sandbox(module(), Managoat.Sandbox.Handle.t(), agent() | nil, [
+          {String.t(), String.t()}
+        ]) :: :ok | {:error, term()}
+  def prepare_sandbox(mod, handle, agent, sprite_env) when is_atom(mod),
+    do: dispatch(mod, :prepare_sandbox, [handle, agent, sprite_env], :ok)
+
+  @doc """
+  Whether `mod` implements the optional callback `fun/arity`, loading it
+  first if it has not been loaded yet.
+
+  The three callbacks with a sensible default have a dispatcher above;
+  `c:build_command/5` has none — there is no argv to fall back to — so a host
+  on the legacy spawn path asks this before calling it, and decides for
+  itself what an unimplemented runtime means.
+
+      if Managoat.Runtimes.implements?(mod, :build_command, 5) do
+        mod.build_command(agent, prompt, :run, session_id, opts)
+      else
+        {:error, :acp_only_runtime}
+      end
+
+  `Code.ensure_loaded?/1` is the whole point: `function_exported?/3` alone
+  answers `false` for a module that is merely not loaded yet, which in an
+  escript or a release is the normal state of a module nobody has called.
+  """
+  @spec implements?(module(), atom(), arity()) :: boolean()
+  def implements?(mod, fun, arity) when is_atom(mod) and is_atom(fun) and is_integer(arity),
+    do: Code.ensure_loaded?(mod) and function_exported?(mod, fun, arity)
+
+  defp dispatch(mod, fun, args, default) do
+    if implements?(mod, fun, length(args)) do
+      apply(mod, fun, args)
+    else
+      default
     end
   end
 end
