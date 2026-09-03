@@ -25,17 +25,20 @@ agent = %{
 }
 
 # 1. The credential env for this runtime, from the credentials the host holds.
-env = runtime.default_env(agent, %{anthropic_api_key: key})
+#    Three of the callbacks are optional, so they are called through the
+#    dispatchers rather than on the module — see "Calling the optional
+#    callbacks" below, and never guard them with function_exported?/3.
+env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
 
 # 2. Files: the runtime's own config (claude's .mcp.json), the system prompt,
 #    the skills.
-:ok = runtime.write_config(handle, agent)
+:ok = Runtimes.write_config(runtime, handle, agent)
 :ok = Instructions.write(handle, "claude", agent)
 :ok = Skills.install(handle, [%{"name" => "house-style", "content" => skill_md}], runtime: "claude")
 
 # 3. The ACP adapter, pinned, then whatever bootstrap the runtime needs.
 :ok = ACP.install(handle, "claude", env)
-:ok = runtime.prepare_sandbox(handle, agent, env)
+:ok = Runtimes.prepare_sandbox(runtime, handle, agent, env)
 
 # 4. Spawn it and hand the process to Managoat.ACP.Peer.
 {bin, args} = ACP.command("claude")
@@ -59,7 +62,7 @@ env = runtime.default_env(agent, %{anthropic_api_key: key})
 
 | Module | Role |
 |---|---|
-| `Managoat.Runtimes` | The behaviour (`default_env/2`, `write_config/2`, `prepare_sandbox/3`, `skills_root/0`, `skills_sh_agent/0`, and an optional `build_command/5` for a runtime that cannot speak ACP) and `for_runtime/1`, the dispatcher from a runtime name to its module. The agent is read as a plain map, `t:Managoat.Runtimes.agent/0`, so the host's own record satisfies it. |
+| `Managoat.Runtimes` | The behaviour (`default_env/2`, `write_config/2`, `prepare_sandbox/3`, `skills_root/0`, `skills_sh_agent/0`, and an optional `build_command/5` for a runtime that cannot speak ACP), `for_runtime/1`, the dispatcher from a runtime name to its module, and `default_env/3`, `write_config/3`, `prepare_sandbox/4`, `implements?/3`, the safe way to call the optional ones. The agent is read as a plain map, `t:Managoat.Runtimes.agent/0`, so the host's own record satisfies it. |
 | `Managoat.Runtimes.ACP` | The adapter table: which package and **pinned** version reach ACP for each runtime (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`; gemini and opencode are native), `install/3`, `command/1`, `cwd/1`, `concurrency/1` (how many turns one sandbox takes for the runtime), `asks_permission?/1` (measured, not assumed), `mcp_servers/1` in the shape `session/new` takes, and `initialize_params/1`. |
 | `Managoat.Runtimes.{Claude, Codex, Gemini, OpenCode}` | One module per runtime: credentials in, env and files out. Two credential shapes, not four: an env var, or a login exec that consumes the key on stdin (codex). |
 | `Managoat.Runtimes.Layout` | The one table every path derives from: `<home>/<config_dir>/<leaf>` per runtime. gemini and opencode run with `HOME=/tmp`, and deriving the HOME export and the file paths from the same row is what keeps a system prompt from being written where the CLI never looks. |
@@ -87,6 +90,46 @@ tenant. The host:
   `prepare_sandbox/3` *after* it, with the npm registry allowed if the policy
   restricts egress;
 - calls `Gemini.SessionStore.consolidate/2` at the end of every gemini turn.
+
+## Calling the optional callbacks
+
+Four of the callbacks are optional and the matrix is genuinely sparse — every
+runtime is missing at least one — so a host has to guard the call. The obvious
+guard is wrong:
+
+```elixir
+# WRONG: silently no-ops in an escript or a release
+if function_exported?(mod, :default_env, 2), do: mod.default_env(agent, creds), else: []
+```
+
+`function_exported?/3` answers `false` for a module that is merely **not
+loaded yet**, which is the normal state of any module nobody has called under
+an escript or a release. That drops the callback without an error: one host
+lost its whole inference credential env this way, and saw a provisioning run
+report every stage green and then fail minutes later on authentication. The
+callback that vanished was `default_env/2`, which *all four* runtimes
+implement — so no amount of checking the matrix saves you.
+
+Dispatch through `Managoat.Runtimes` instead. Each function loads the module
+first and falls back to the documented no-op:
+
+```elixir
+env  = Managoat.Runtimes.default_env(mod, agent, credentials)      # or []
+:ok  = Managoat.Runtimes.write_config(mod, handle, agent)          # or :ok
+:ok  = Managoat.Runtimes.prepare_sandbox(mod, handle, agent, env)  # or :ok
+```
+
+`build_command/5` has no default to fall back to — there is no argv to
+invent — so ask `Managoat.Runtimes.implements?/3` and decide what an
+unimplemented runtime means on your legacy spawn path. `skills_root/0` and
+`skills_sh_agent/0` are required callbacks; call them on the module.
+
+| callback | claude | codex | gemini | opencode |
+|---|---|---|---|---|
+| `default_env/2` | ✓ | ✓ | ✓ | ✓ |
+| `write_config/2` | ✓ | — | ✓ | — |
+| `prepare_sandbox/3` | — | ✓ | ✓ | ✓ |
+| `build_command/5` | — | — | — | — |
 
 ## The adapter is pinned, and that is load-bearing
 

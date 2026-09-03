@@ -10,6 +10,21 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-03
+
+### Added
+
+- `Managoat.Runtimes.default_env/3`, `write_config/3` and `prepare_sandbox/4`
+  dispatch an optional callback and fall back to its documented no-op, and
+  `implements?/3` answers the same question for `build_command/5`, which has
+  no default to fall back to. All four call `Code.ensure_loaded?/1` first.
+  `function_exported?/3` alone answers `false` for a module that is merely not
+  loaded yet — the normal state under an escript or a release — so the obvious
+  guard silently drops callbacks the runtime does implement. It cost one host
+  its whole inference credential env, on a provisioning run that reported every
+  stage green (#7). The README and the moduledoc name the trap where a host
+  looks for it.
+
 ## [0.2.1] - 2026-09-03
 
 ### Changed
