@@ -10,6 +10,17 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-03
+
+### Changed
+
+- `:gemini_usage_in_meta_quota`'s `measured_against` now records the whole
+  range the shape was checked over — gemini-cli 0.53.0, 0.56.0 and 0.59 return
+  it byte-identically. Read against 0.59 alone it invited the question of
+  whether it applied to the 0.53–0.56 versions
+  `:gemini_session_store_consolidation` was measured against, which is the
+  band a sprite base image actually ships. It does. No behaviour change.
+
 ## [0.1.2] - 2026-09-03
 
 ### Added

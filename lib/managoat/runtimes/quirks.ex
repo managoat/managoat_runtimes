@@ -150,10 +150,14 @@ defmodule Managoat.Runtimes.Quirks do
       """,
       upstream: "https://github.com/google-gemini/gemini-cli/issues/24280",
       measured_against: """
-      gemini-cli 0.59 (`packages/cli/src/acp/acpSession.ts` returns this shape
-      on every `session/prompt` outcome but `cancelled`); the empty figure
-      observed live on 2026-09-03, the populated one after this landed.
-      Upstream closed the request for the standard fields with no plans.
+      gemini-cli 0.53.0, 0.56.0 and 0.59 — byte-identical returns in
+      `packages/cli/src/acp/acpSession.ts` at all three, on every
+      `session/prompt` outcome but `cancelled`. That range matters because it
+      spans the versions `:gemini_session_store_consolidation` was measured
+      against, so no sprite base image in service reports usage any other way.
+      The empty figure was observed live on 2026-09-03, the populated one
+      after this landed. Upstream closed the request for the standard fields
+      with no plans.
       """,
       implemented_by: {Managoat.ACP.Usage, :from_meta_quota, 1},
       reprobe: """
