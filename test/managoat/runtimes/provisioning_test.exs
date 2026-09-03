@@ -64,6 +64,27 @@ defmodule Managoat.Runtimes.ProvisioningTest do
                Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk"}])
     end
 
+    test "a transport that drops before the exit is an error, not a successful login" do
+      # managoat_sandbox 0.2.0: a stream that closes with no exit frame is
+      # `{:error, _, :closed_before_exit}`. Under 0.1.0 it was a synthesised
+      # `{:exit, _, 0}`, so this returned :ok and provisioning carried on
+      # with a sandbox that had never logged in.
+      test = self()
+      command = %Sandbox.Command{provider: :sprites, ref: make_ref()}
+
+      expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:ok, command} end)
+
+      expect(Sandbox, :write_stdin, fn ^command, _ ->
+        send(test, {:error, %{ref: command.ref}, :closed_before_exit})
+        :ok
+      end)
+
+      expect(Sandbox, :close_stdin, fn ^command -> :ok end)
+
+      assert {:error, {:codex_login_transport, :closed_before_exit}} =
+               Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk"}])
+    end
+
     test "a refused stdin write and a failed spawn are tagged errors, not exits" do
       command = %Sandbox.Command{provider: :sprites, ref: make_ref()}
       expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:ok, command} end)

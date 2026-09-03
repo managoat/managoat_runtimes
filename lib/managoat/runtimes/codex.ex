@@ -66,6 +66,16 @@ defmodule Managoat.Runtimes.Codex do
 
                   {:exit, %{ref: ref}, code} when ref == command.ref ->
                     {:error, {:codex_login_exit, code}}
+
+                  # The other terminal frame. Since managoat_sandbox 0.2.0 a
+                  # transport that goes away before the exit arrives says so
+                  # (`:closed_before_exit`) instead of fabricating an exit 0
+                  # — which used to land on the clause above and report a
+                  # login that never happened as a success. Without this
+                  # clause it would be a 30-second wait for a frame that has
+                  # already been sent.
+                  {:error, %{ref: ref}, reason} when ref == command.ref ->
+                    {:error, {:codex_login_transport, reason}}
                 after
                   30_000 -> {:error, :codex_login_timeout}
                 end
