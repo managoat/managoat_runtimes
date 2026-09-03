@@ -9,8 +9,15 @@ defmodule Managoat.Runtimes.OpenCode do
   sprite and drives it through opencode's SDK — a heavier process model than
   the stdio-only adapters, worth remembering when something hangs.
 
-  Auth: depends on the provider in `agent.model`. We export whichever
-  one of {ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY} matches.
+  Auth: depends on the provider in `agent.model`. We export whichever one of
+  {ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY} matches.
+
+  The third name is the trap. opencode reaches Google through `@ai-sdk/google`
+  and reads `GOOGLE_GENERATIVE_AI_API_KEY`; `GEMINI_API_KEY` is the gemini
+  runtime's name and opencode does not read it at all. The env var belongs to
+  the runtime-and-provider pair, not to the provider, and getting it wrong is
+  not a degraded turn — every prompt fails with `Authentication required:
+  provider authentication required` (BinaryBourbon/fountain#1460).
 
   Heads-up: opencode is *not* pre-installed on the sprite base image —
   the first session on a new sprite will install it (10–30s longer than
@@ -50,10 +57,19 @@ defmodule Managoat.Runtimes.OpenCode do
 
   defp provider_env(%{model: model}, inference_credentials) do
     case Model.provider(model) do
-      "anthropic" -> env_pair("ANTHROPIC_API_KEY", :anthropic_api_key, inference_credentials)
-      "openai" -> env_pair("OPENAI_API_KEY", :openai_api_key, inference_credentials)
-      "google" -> env_pair("GEMINI_API_KEY", :gemini_api_key, inference_credentials)
-      _ -> []
+      "anthropic" ->
+        env_pair("ANTHROPIC_API_KEY", :anthropic_api_key, inference_credentials)
+
+      "openai" ->
+        env_pair("OPENAI_API_KEY", :openai_api_key, inference_credentials)
+
+      # Not GEMINI_API_KEY: see the moduledoc. opencode's google provider is
+      # `@ai-sdk/google`, which reads GOOGLE_GENERATIVE_AI_API_KEY only.
+      "google" ->
+        env_pair("GOOGLE_GENERATIVE_AI_API_KEY", :gemini_api_key, inference_credentials)
+
+      _ ->
+        []
     end
   end
 

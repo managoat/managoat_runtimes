@@ -37,6 +37,16 @@ defmodule Managoat.Runtimes.Quirks do
   would have to change for the code to be deleted. If you cannot, it is not a
   workaround — it is just how that runtime works.
 
+  The same test excludes opencode taking its Google key as
+  `GOOGLE_GENERATIVE_AI_API_KEY` while the gemini runtime takes
+  `GEMINI_API_KEY` (BinaryBourbon/fountain#1460). Reading it under that name
+  is what `@ai-sdk/google` does, no upstream change would make opencode read
+  the other one, and there is no version at which we stop exporting it. It is
+  recorded in `Managoat.Runtimes.OpenCode`'s moduledoc, next to the clause a
+  reader would otherwise get wrong. A registry that also carries facts loses
+  the property that makes it worth more than comments: that everything in it
+  has a deletion condition.
+
   ## Re-probing
 
   `reprobe` says how to find out whether the defect is still there. It is the
