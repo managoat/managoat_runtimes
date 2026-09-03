@@ -1,7 +1,7 @@
 defmodule Managoat.Runtimes.MixProject do
   use Mix.Project
 
-  @version "0.1.3"
+  @version "0.2.0"
   @source_url "https://github.com/managoat/managoat_runtimes"
 
   def project do
@@ -47,7 +47,7 @@ defmodule Managoat.Runtimes.MixProject do
        runtime: false},
       # The sandbox the runtimes are provisioned into: exec, write_file,
       # spawn, the Handle and Retry. Both directions decisions/0037 pins.
-      {:managoat_sandbox, "~> 0.1.0"},
+      {:managoat_sandbox, "~> 0.2.0"},
       # Protocol.initialize_params/1 and default_client_capabilities/0, for
       # the params a host sends the adapter this library installed. Pinned to
       # 0.1.1 rather than 0.1.0 because `Quirks` names

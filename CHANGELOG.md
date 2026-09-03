@@ -10,6 +10,22 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-03
+
+### Changed
+
+- Takes `managoat_sandbox ~> 0.2.0`, where a command stream that closes
+  without an exit frame is `{:error, %{ref: ref}, :closed_before_exit}`
+  rather than a synthesised `{:exit, %{ref: ref}, 0}`
+  (managoat/managoat_sandbox#4).
+- `Managoat.Runtimes.Codex.prepare_sandbox/3` answers that frame. `codex
+  login --with-api-key` is driven over stdin and waited on for its exit, and
+  the old synthesised zero landed on the success clause: a login whose
+  transport went away was reported as one that worked, and provisioning
+  carried on with a sandbox that had no `~/.codex/auth.json`. It is now
+  `{:error, {:codex_login_transport, reason}}` — and arrives at once rather
+  than after the 30-second wait for a frame that had already been sent.
+
 ## [0.1.3] - 2026-09-03
 
 ### Changed
