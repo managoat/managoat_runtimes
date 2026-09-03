@@ -10,6 +10,14 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-03
+
+### Changed
+
+- Raised the package's coverage gate from 90% to 96% after adding contract
+  coverage for model translation, empty skill sets, pre-normalized MCP headers,
+  adapter lookup fallbacks, and configuration no-ops.
+
 ## [0.2.0] - 2026-09-03
 
 ### Changed

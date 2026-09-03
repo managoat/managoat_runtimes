@@ -148,6 +148,21 @@ defmodule Managoat.Runtimes.ACPTest do
       assert server.headers == [%{name: "Authorization", value: "Bearer t"}]
     end
 
+    test "already-normalized header arrays pass through unchanged" do
+      headers = [%{name: "Authorization", value: "Bearer t"}]
+
+      [server] =
+        ACP.mcp_servers(
+          agent(
+            mcp_servers: %{
+              "r" => %{"type" => "http", "url" => "https://x.test", "headers" => headers}
+            }
+          )
+        )
+
+      assert server.headers == headers
+    end
+
     test "servers are ordered by name so the adapter's session snapshot is stable" do
       # The adapter snapshots {cwd, mcpServers} per session and tears the
       # session down when the snapshot changes. Map iteration order is not
@@ -201,6 +216,7 @@ defmodule Managoat.Runtimes.ACPTest do
     test "gemini speaks ACP natively, so there is nothing to pin" do
       assert {"gemini", ["--acp"]} = ACP.command("gemini")
       assert is_nil(ACP.adapter_spec("gemini"))
+      assert is_nil(ACP.adapter_spec("nonesuch"))
     end
 
     test "the held-back gemini entry still points at the right workspace" do

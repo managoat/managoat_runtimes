@@ -111,6 +111,11 @@ defmodule Managoat.Runtimes.ModelTest do
       assert Runtimes.Model.acp_model("opencode", "claude-sonnet-4-6") == nil
       assert Runtimes.Model.acp_model("claude", nil) == nil
     end
+
+    test "a non-string runtime is treated as single-provider, never as opencode" do
+      assert Runtimes.Model.acp_model(nil, "openai/gpt-5.3-codex") == "gpt-5.3-codex"
+      assert Runtimes.Model.acp_model(%{}, "bare-id") == nil
+    end
   end
 
   describe "model_args/1" do
