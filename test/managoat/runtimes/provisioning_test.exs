@@ -108,6 +108,15 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
   end
 
+  describe "configuration no-ops" do
+    test "an agent without runtime-specific config writes nothing" do
+      reject(&Sandbox.write_file/3)
+
+      assert :ok = Managoat.Runtimes.Claude.write_config(@handle, %{})
+      assert :ok = Managoat.Runtimes.Instructions.write(@handle, "claude", %{})
+    end
+  end
+
   describe "Gemini" do
     test "default_env/2 exports the key and HOME=/tmp, and HOME alone without a key" do
       assert Gemini.default_env(nil, %{gemini_api_key: "g"}) ==

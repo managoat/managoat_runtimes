@@ -10,6 +10,13 @@ defmodule Managoat.Runtimes.SkillsTest do
   @handle %Sandbox.Handle{provider: :sprites, name: "skills-test"}
 
   describe "install/3" do
+    test "an empty skill set is a no-op" do
+      reject(&Sandbox.write_file/3)
+      reject(&Sandbox.exec/4)
+
+      assert :ok = Skills.install(@handle, [], runtime: "claude")
+    end
+
     test "inline skills land under the runtime's skills root, in the order given" do
       test = self()
 
@@ -131,6 +138,16 @@ defmodule Managoat.Runtimes.SkillsTest do
 
     test "empty ref is treated as unpinned" do
       cmd = Skills.github_install_cmd(%{"source" => "owner/repo", "ref" => ""}, "claude")
+
+      assert cmd == "npx -y skills@latest add owner/repo --global --agent claude --yes"
+    end
+
+    test "empty name does not add a skill selector" do
+      cmd =
+        Skills.github_install_cmd(
+          %{"source" => "owner/repo", "name" => ""},
+          "claude"
+        )
 
       assert cmd == "npx -y skills@latest add owner/repo --global --agent claude --yes"
     end

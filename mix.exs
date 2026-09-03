@@ -1,7 +1,7 @@
 defmodule Managoat.Runtimes.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.2.1"
   @source_url "https://github.com/managoat/managoat_runtimes"
 
   def project do
@@ -18,13 +18,12 @@ defmodule Managoat.Runtimes.MixProject do
       docs: docs(),
       dialyzer: dialyzer(),
       test_coverage: [
-        # What this suite measures on its own: 94.19% on the first
-        # `mix test --cover` run after extraction (#1368), with the runtimes'
-        # bootstraps, the adapter install and the skills mechanism driven
-        # against a stubbed sandbox. Set a little under that so an added
-        # error branch does not fail the gate on its own; raise it as the
-        # library's own tests grow, never lower it.
-        summary: [threshold: 90]
+        # The behaviour-focused suite currently measures 96.91%, with the
+        # runtimes' bootstraps, adapter install, model translation and skills
+        # mechanism driven against a stubbed sandbox. The remaining misses are
+        # defensive or timing-only paths; keep a little headroom for a real
+        # branch, and raise this as meaningful tests grow, never lower it.
+        summary: [threshold: 96]
       ]
     ]
   end
