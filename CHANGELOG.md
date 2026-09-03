@@ -10,6 +10,23 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-03
+
+### Added
+
+- `Quirks` records `:gemini_usage_in_meta_quota`. gemini leaves ACP's
+  `PromptResponse.usage` empty and reports the turn's tokens under a vendor
+  extension at `_meta.quota.token_count`, so a host billing from that figure
+  billed nothing for gemini (BinaryBourbon/fountain#1459). The workaround is
+  `Managoat.ACP.Usage.from_meta_quota/1`, released in managoat_acp 0.1.1, and
+  the entry carries the upstream issue and what would delete it.
+
+### Changed
+
+- `managoat_acp` is pinned `~> 0.1.1`. The quirk above names a function added
+  in that release, and the registry's guardrail asserts it exists — an older
+  managoat_acp now fails the suite rather than the billing.
+
 ## [0.1.1] - 2026-09-03
 
 ### Fixed
