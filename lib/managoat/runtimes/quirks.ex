@@ -133,6 +133,47 @@ defmodule Managoat.Runtimes.Quirks do
       """
     },
     %{
+      id: :gemini_usage_in_meta_quota,
+      runtimes: ["gemini"],
+      summary: "gemini's end-of-turn tokens are read from its own `_meta.quota`",
+      why: """
+      ACP defines `PromptResponse.usage` and gemini leaves it empty, reporting
+      the turn's tokens under a vendor extension instead —
+      `_meta.quota.token_count.{input_tokens, output_tokens}`, snake-cased,
+      with no cache split. `Managoat.ACP.Usage` read the protocol field and
+      the older flat `_meta.inputTokens`, so every gemini turn normalised to
+      `nil`: a host that bills from that figure billed nothing, and a spend
+      ceiling measured from those bills could not see gemini at all
+      (BinaryBourbon/fountain#1459). `Usage.from_meta_quota/1` reads the
+      vendor shape; the protocol's own field still wins where both are
+      present.
+      """,
+      upstream: "https://github.com/google-gemini/gemini-cli/issues/24280",
+      measured_against: """
+      gemini-cli 0.59 (`packages/cli/src/acp/acpSession.ts` returns this shape
+      on every `session/prompt` outcome but `cancelled`); the empty figure
+      observed live on 2026-09-03, the populated one after this landed.
+      Upstream closed the request for the standard fields with no plans.
+      """,
+      implemented_by: {Managoat.ACP.Usage, :from_meta_quota, 1},
+      reprobe: """
+      One gemini turn, reading the `session/prompt` result off the wire: does
+      it carry a `usage` object beside its `_meta.quota`? The counts are the
+      same either way, so the transcript cannot answer this — only the raw
+      response can.
+      """,
+      delete_when: """
+      gemini populates `PromptResponse.usage`. Then drop
+      `Usage.from_meta_quota/1` and its clause in `from_prompt_result/1`.
+      Order matters on the way out as it does now: `usage` is tried first, so
+      an adapter that starts filling it is already preferred and the removal
+      changes no figure. Confirm against a live turn before deleting — a
+      version that fills `usage` with zeroes while the real counts stay in
+      `_meta.quota` would silently start billing nothing again, which is the
+      failure this entry exists for.
+      """
+    },
+    %{
       id: :opencode_absent_from_base_image,
       runtimes: ["opencode"],
       summary: "opencode is installed into every sandbox at provision time",

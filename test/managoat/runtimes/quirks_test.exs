@@ -74,6 +74,7 @@ defmodule Managoat.Runtimes.QuirksTest do
   test "for_runtime/1 and upstream_tracked/0 select from the same table" do
     assert Enum.map(Quirks.for_runtime("gemini"), & &1.id) == [
              :gemini_session_store_consolidation,
+             :gemini_usage_in_meta_quota,
              :home_on_tmp
            ]
 
@@ -86,7 +87,8 @@ defmodule Managoat.Runtimes.QuirksTest do
     # The two we are waiting on someone else for.
     assert Keyword.keys(Quirks.upstream_tracked()) == [
              :claude_mcp_via_files,
-             :gemini_session_store_consolidation
+             :gemini_session_store_consolidation,
+             :gemini_usage_in_meta_quota
            ]
   end
 
