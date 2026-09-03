@@ -61,17 +61,28 @@ defmodule Managoat.Runtimes.ModelTest do
       refute Runtimes.Model.known_provider?(nil)
     end
 
-    test "opencode exports a credential for every provider in the set, and no other" do
-      for provider <- Runtimes.Model.providers() do
-        env =
-          Runtimes.OpenCode.default_env(%{model: "#{provider}/some-model"}, %{
-            anthropic_api_key: "a",
-            openai_api_key: "o",
-            gemini_api_key: "g"
-          })
+    # The name matters as much as the coverage: opencode reads a *different*
+    # variable per provider, and for google it is not the one the gemini
+    # runtime reads. Asserting only "something ending in _API_KEY" is what let
+    # `GEMINI_API_KEY` sit here wrong through nine releases
+    # (BinaryBourbon/fountain#1460), so the expected name is written out and a
+    # new provider has to be named here before this passes.
+    @opencode_env_names %{
+      "anthropic" => "ANTHROPIC_API_KEY",
+      "openai" => "OPENAI_API_KEY",
+      "google" => "GOOGLE_GENERATIVE_AI_API_KEY"
+    }
 
-        assert Enum.any?(env, fn {k, _} -> String.ends_with?(k, "_API_KEY") end),
-               "opencode exported nothing for #{provider}: #{inspect(env)}"
+    test "opencode exports each provider's own variable, by name, and no other" do
+      creds = %{anthropic_api_key: "a", openai_api_key: "o", gemini_api_key: "g"}
+
+      for provider <- Runtimes.Model.providers() do
+        env = Runtimes.OpenCode.default_env(%{model: "#{provider}/some-model"}, creds)
+        expected = Map.fetch!(@opencode_env_names, provider)
+
+        assert Enum.map(env, &elem(&1, 0)) |> Enum.filter(&String.ends_with?(&1, "_API_KEY")) ==
+                 [expected],
+               "opencode did not export #{expected} for #{provider}: #{inspect(env)}"
       end
 
       env =

@@ -36,7 +36,11 @@ defmodule Managoat.Runtimes do
     * **Credential delivery** — genuinely irreducible, and two shapes rather
       than four: an env var (claude, gemini, opencode) or a login exec that
       consumes the key on stdin (codex, whose CLI ignores the process env).
-      See `default_env/2` and `prepare_sandbox/3`.
+      The env var's *name* belongs to the runtime-and-provider pair rather
+      than to the provider: a Google key is `GEMINI_API_KEY` for the gemini
+      runtime and `GOOGLE_GENERATIVE_AI_API_KEY` for opencode, which reaches
+      Google through `@ai-sdk/google`. See `default_env/2` and
+      `prepare_sandbox/3`.
   """
 
   @type mode :: :run | :continue
