@@ -10,6 +10,21 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.3.1]
+
+### Fixed
+
+- Pin Codex ACP to 1.10.0, which bundles Codex ^0.153.3. The previous adapter
+  bundled 0.147.0 on the affected Fountain sandbox and did not advertise
+  GPT-6 Astra. Existing installations are corrected by the version check
+  during installation; running connections keep their process until reopened.
+- Recognize the package-prefixed `codex-acp --version` output, so checking an
+  already installed pin does not run npm again.
+- Allow `managoat_acp` 0.2 alongside 0.1.1 and later 0.1 patches. Hosts can
+  adopt strict model selection without a dependency override; the protocol
+  and usage helpers consumed by this package are compatible with both.
+
+
 ## [0.3.0] - 2026-09-03
 
 ### Added

@@ -273,9 +273,34 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
     test "codex installs its own adapter the same way" do
       expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-        assert script =~ "@agentclientprotocol/codex-acp@1.1.14"
+        assert script =~ "@agentclientprotocol/codex-acp@1.10.0"
         assert script =~ "bin=/home/sprite/.local/bin/codex-acp"
         {:ok, "", 0}
+      end)
+
+      assert :ok = ACP.install(@handle, "codex", [])
+    end
+
+    test "a package-prefixed version skips npm when the pin is already installed" do
+      dir = Path.join(System.tmp_dir!(), "acp-pin-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      File.write!(
+        Path.join(dir, "codex-acp"),
+        "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.10.0'\n"
+      )
+
+      File.chmod!(Path.join(dir, "codex-acp"), 0o755)
+
+      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
+        script = String.replace(script, "/home/sprite/.local/bin", dir)
+        # A forbidden npm call fails locally; no real package manager runs.
+        script = "npm() { echo unexpected-install; return 91; }\n" <> script
+        {output, code} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+        assert code == 0
+        refute output =~ "unexpected-install"
+        {:ok, output, code}
       end)
 
       assert :ok = ACP.install(@handle, "codex", [])
