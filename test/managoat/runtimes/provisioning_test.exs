@@ -281,6 +281,31 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert :ok = ACP.install(@handle, "codex", [])
     end
 
+    test "a package-prefixed version skips npm when the pin is already installed" do
+      dir = Path.join(System.tmp_dir!(), "acp-pin-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      File.write!(
+        Path.join(dir, "codex-acp"),
+        "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.10.0'\n"
+      )
+
+      File.chmod!(Path.join(dir, "codex-acp"), 0o755)
+
+      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
+        script = String.replace(script, "/home/sprite/.local/bin", dir)
+        # A forbidden npm call fails locally; no real package manager runs.
+        script = "npm() { echo unexpected-install; return 91; }\n" <> script
+        {output, code} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+        assert code == 0
+        refute output =~ "unexpected-install"
+        {:ok, output, code}
+      end)
+
+      assert :ok = ACP.install(@handle, "codex", [])
+    end
+
     test "a failed install names the exit code and the first 500 bytes of output" do
       long = String.duplicate("e", 600)
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, long, 1} end)

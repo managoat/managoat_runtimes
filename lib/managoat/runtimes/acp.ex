@@ -392,7 +392,7 @@ defmodule Managoat.Runtimes.ACP do
     set -e
     want=#{version}
     bin=/home/sprite/.local/bin/#{bin}
-    have=$("$bin" --version 2>/dev/null | tr -d '[:space:]' || true)
+    have=$("$bin" --version 2>/dev/null | awk '{print $NF}' | tr -d '[:space:]' || true)
     if [ "$have" != "$want" ]; then
       npm install -g --no-progress --silent #{spec}
       mkdir -p /home/sprite/.local/bin
