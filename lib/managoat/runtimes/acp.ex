@@ -163,7 +163,7 @@ defmodule Managoat.Runtimes.ACP do
       bin: "codex-acp",
       args: [],
       package: "@agentclientprotocol/codex-acp",
-      version: "1.1.14"
+      version: "1.10.0"
     },
     # Native: `opencode acp`. Heavier than the others — the subcommand starts a
     # local HTTP server inside the sprite and drives it through opencode's own
@@ -253,7 +253,7 @@ defmodule Managoat.Runtimes.ACP do
   protection and is not.
 
   Measured 2026-08-22 against live agents: claude (claude-agent-acp 0.66),
-  codex (codex-acp 1.1.14) and gemini (0.53, on the ACP path since #964) all ask
+  codex (codex-acp 1.10.0) and gemini (0.53, on the ACP path since #964) all ask
   per tool call. opencode does not, ever.
 
   Each runtime names its options differently — claude answers to `allow` and

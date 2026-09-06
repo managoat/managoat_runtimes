@@ -273,7 +273,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
     test "codex installs its own adapter the same way" do
       expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-        assert script =~ "@agentclientprotocol/codex-acp@1.1.14"
+        assert script =~ "@agentclientprotocol/codex-acp@1.10.0"
         assert script =~ "bin=/home/sprite/.local/bin/codex-acp"
         {:ok, "", 0}
       end)
