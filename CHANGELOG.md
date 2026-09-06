@@ -20,6 +20,9 @@ the package ships without a bump fails the release gate.
   during installation; running connections keep their process until reopened.
 - Recognize the package-prefixed `codex-acp --version` output, so checking an
   already installed pin does not run npm again.
+- Allow `managoat_acp` 0.2 alongside 0.1.1 and later 0.1 patches. Hosts can
+  adopt strict model selection without a dependency override; the protocol
+  and usage helpers consumed by this package are compatible with both.
 
 
 ## [0.3.0] - 2026-09-03

@@ -56,12 +56,11 @@ defmodule Managoat.Runtimes.MixProject do
       # spawn, the Handle and Retry. Both directions decisions/0037 pins.
       {:managoat_sandbox, "~> 0.2.0"},
       # Protocol.initialize_params/1 and default_client_capabilities/0, for
-      # the params a host sends the adapter this library installed. Pinned to
-      # 0.1.1 rather than 0.1.0 because `Quirks` names
-      # `Usage.from_meta_quota/1` as a quirk's `implemented_by` and the
-      # registry's guardrail asserts that function exists — an older
-      # managoat_acp fails the suite rather than the billing.
-      {:managoat_acp, "~> 0.1.1"},
+      # the params a host sends the adapter this library installed. These
+      # APIs are compatible with ACP 0.1 and 0.2; hosts choose the peer's
+      # model-selection contract. The 0.1 floor is 0.1.1 because Quirks
+      # references Usage.from_meta_quota/1, introduced in that release.
+      {:managoat_acp, "~> 0.1.1 or ~> 0.2.0"},
       # The runtime config files (claude's .mcp.json and settings.json,
       # gemini's settings.json) are JSON.
       {:jason, "~> 1.2"},
