@@ -75,6 +75,39 @@ defmodule Managoat.Runtimes.ACPTest do
     end
   end
 
+  describe "execution_limits/2" do
+    test "the selected runtime determines whether limits can be applied" do
+      assert {:ok, limits} =
+               ACP.execution_limits("claude", %{
+                 max_model_turns: 3,
+                 max_estimated_cost_usd: 0.25
+               })
+
+      assert Managoat.ACP.ExecutionLimits.session_params(%{}, limits) == %{
+               _meta: %{claudeCode: %{options: %{maxTurns: 3, maxBudgetUsd: 0.25}}}
+             }
+
+      for runtime <- ["codex", "gemini", "opencode", "custom"] do
+        assert {:error, :unsupported_execution_limit_runtime} =
+                 ACP.execution_limits(runtime, %{max_model_turns: 3})
+      end
+    end
+
+    test "absent limits preserve defaults but malformed requests fail" do
+      for runtime <- ACP.supported_runtimes() do
+        assert {:ok, nil} = ACP.execution_limits(runtime, nil)
+      end
+
+      assert {:error, :empty_execution_limits} = ACP.execution_limits("claude", %{})
+
+      assert {:error, :invalid_max_model_turns} =
+               ACP.execution_limits("claude", %{max_model_turns: 0})
+
+      assert {:error, :invalid_execution_limits} = ACP.execution_limits("claude", %{env: %{}})
+      assert {:error, :invalid_execution_limits} = ACP.execution_limits("claude", "3")
+    end
+  end
+
   describe "mcp_servers/1" do
     test "a stdio server carries no type, because the adapter branches on its absence" do
       # Sending `type: "stdio"` puts the entry down the http/sse branch of the

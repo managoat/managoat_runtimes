@@ -73,6 +73,22 @@ env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
 | `Managoat.Runtimes.Gemini.SessionStore` | The largest of those workarounds: gemini's own session store erases a session in the act of loading it, so this consolidates the store after every turn. Goes when google-gemini/gemini-cli#28775 lands. |
 | `Managoat.Runtimes.Testing.FakeRuntime` | A runtime for tests that reports every callback to an observer, plus two that fail on purpose. Ships in `lib/` so a host's tests can drive their turn machinery without a CLI. |
 
+## Execution limits
+
+`ACP.execution_limits(runtime, attrs)` validates limits against the selected
+runtime before provisioning. Claude accepts `max_model_turns` and
+`max_estimated_cost_usd`; other runtimes reject requested limits. Pass the
+returned value to `Managoat.ACP.Peer.start/1` as `execution_limits:`.
+
+These are SDK Query limits, not aggregate HTTP quotas or durable account
+budgets. Hosts must enforce ceilings, persist remaining allowances and retain
+uncertain reservations. Query recreation may reset accounting; estimated cost
+may overshoot through work in flight. The pinned Claude adapter requires a
+fresh process when limits change until
+[upstream #1097](https://github.com/agentclientprotocol/claude-agent-acp/pull/1097)
+ships. This release requires ACP 0.4: missing or malformed prompt stop reasons
+are `unknown`, and consumers must treat them as incomplete.
+
 ## What the host still does
 
 This package writes files into a sandbox and tells you what to spawn. It

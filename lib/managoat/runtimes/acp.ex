@@ -291,6 +291,29 @@ defmodule Managoat.Runtimes.ACP do
     for {name, spec} <- @adapters, Map.get(spec, :asks_permission, true) == false, do: name
   end
 
+  @doc """
+  Validate execution limits for the runtime that will actually be spawned.
+
+  Only Claude currently has a supported SDK extension: `:max_model_turns`
+  and `:max_estimated_cost_usd`. Other runtimes refuse non-nil limits instead
+  of silently running without them. `nil` means no requested SDK limits.
+
+  Pass the result as `execution_limits:` to `Managoat.ACP.Peer.start/1`.
+  The host owns account ceilings and durable reservations. These limits apply
+  to one SDK Query; process recreation may reset its accounting. The pinned
+  Claude adapter requires a fresh process when limits change, pending upstream
+  agentclientprotocol/claude-agent-acp#1097.
+  """
+  @spec execution_limits(String.t(), map() | nil) ::
+          {:ok, Managoat.ACP.ExecutionLimits.t() | nil} | {:error, atom()}
+  def execution_limits(_runtime, nil), do: {:ok, nil}
+
+  def execution_limits("claude", attrs),
+    do: Managoat.ACP.ExecutionLimits.new(:claude, attrs)
+
+  def execution_limits(_runtime, _attrs),
+    do: {:error, :unsupported_execution_limit_runtime}
+
   @doc "The npm package and version pinned for a runtime, or nil when native."
   @spec adapter_spec(String.t()) :: String.t() | nil
   def adapter_spec(runtime) do
