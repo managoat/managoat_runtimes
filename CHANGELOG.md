@@ -10,6 +10,28 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-09-07
+
+### Added
+
+- `Managoat.Runtimes.Claude.prepare_sandbox/3` warms the CLI's model list
+  before the host's first session. The Claude Code binary bundled in the
+  adapter's SDK learns an org's "additional models" (Fable among them) from a
+  fetch it makes after a session has started, and caches the answer in
+  `~/.claude.json` for the *next* launch — so the first session in a fresh
+  sandbox never listed Fable and refused `claude-fable-5-1` at
+  `session/set_config_option`, on every adapter version, while the second
+  session in the same sandbox accepted it. The warm-up opens one prompt-less
+  ACP session through the pinned adapter and waits for the cache (under three
+  seconds measured; bounded at 30, which is also the whole cost of a
+  credential the org refuses). Best-effort: a cache that stays cold is
+  logged and provisioning continues, and nothing runs without a credential in
+  the env. Recorded as `:claude_model_list_warmup` in `Managoat.Runtimes.Quirks`
+  with the re-probe and the deletion condition. Hosts that dispatch through
+  `Managoat.Runtimes.prepare_sandbox/4` or their own `function_exported?/3`
+  guard pick it up with no change; hosts that skip claude's `prepare_sandbox`
+  by name now have a reason not to.
+
 ## [0.3.3] - 2026-09-07
 
 ### Changed

@@ -94,7 +94,9 @@ tenant. The host:
 ## Calling the optional callbacks
 
 Four of the callbacks are optional and the matrix is genuinely sparse — every
-runtime is missing at least one — so a host has to guard the call. The obvious
+runtime is missing at least one — so a host has to guard the call.
+(claude's `prepare_sandbox/3` is the newest row: it warms the CLI's model
+list, without which a fresh sandbox's first session cannot select Fable.) The obvious
 guard is wrong:
 
 ```elixir
@@ -128,7 +130,7 @@ unimplemented runtime means on your legacy spawn path. `skills_root/0` and
 |---|---|---|---|---|
 | `default_env/2` | ✓ | ✓ | ✓ | ✓ |
 | `write_config/2` | ✓ | — | ✓ | — |
-| `prepare_sandbox/3` | — | ✓ | ✓ | ✓ |
+| `prepare_sandbox/3` | ✓ | ✓ | ✓ | ✓ |
 | `build_command/5` | — | — | — | — |
 
 ## The adapter is pinned, and that is load-bearing
