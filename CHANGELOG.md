@@ -10,6 +10,14 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-07
+
+### Changed
+
+- Accept Managoat.ACP 0.3.x, which preserves adapter accounting metadata.
+  The runtime library uses its unchanged protocol initialization API. Existing
+  0.1.x and 0.2.x consumers remain supported; adapter pins are unchanged.
+
 ## [0.3.1]
 
 ### Fixed
