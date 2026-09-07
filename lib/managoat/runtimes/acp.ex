@@ -125,11 +125,25 @@ defmodule Managoat.Runtimes.ACP do
     # `loadSession: true` and `sessionCapabilities.resume`; `resumeSession`
     # reattaches without replaying while `loadSession` calls
     # `replaySessionHistory`.
+    #
+    # 0.66.0 → 0.75.1 on 2026-09-07, for Fable 5.1. The adapter's model list
+    # is whatever the Claude Code binary bundled in its SDK dependency reports,
+    # and that binary refuses `claude-fable-5-1` below 2.1.255 ("Fable 5.1
+    # (disabled) — Update to 2.1.255+"): 0.66.0 bundles SDK 0.3.220 = CLI
+    # 2.1.220, 0.75.1 bundles SDK 0.3.257 = CLI 2.1.257. 0.75.1's
+    # `session/set_config_option` also resolves a full model id onto the
+    # alias row the CLI advertises (`claude-fable-5-1` → `claude-fable-5-1[1m]`),
+    # which 0.66.0's exact match did not. Measured with real turns on haiku
+    # and claude-fable-5-1: the prompt result's `usage` keeps the protocol
+    # shape `Managoat.ACP.Usage.from_prompt_result/1` reads, and the two new
+    # notifications (`_auth/status_update`, `usage_update`) fall through
+    # `Managoat.ACP.Peer`'s unknown-notification clause. Re-probed
+    # `:claude_mcp_via_files` at the same time; see `Managoat.Runtimes.Quirks`.
     "claude" => %{
       bin: "claude-agent-acp",
       args: [],
       package: "@agentclientprotocol/claude-agent-acp",
-      version: "0.66.0"
+      version: "0.75.1"
     },
     # Native: `gemini --acp`. Advertises `loadSession: true` and **no**
     # `sessionCapabilities`, so every turn after the first pays a full replay
