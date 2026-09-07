@@ -241,6 +241,41 @@ defmodule Managoat.Runtimes.Quirks do
       """
     },
     %{
+      id: :claude_model_list_warmup,
+      runtimes: ["claude"],
+      summary: "claude's model list is warmed with a throwaway session at provisioning",
+      why: """
+      The Claude Code binary bundled in the adapter's SDK learns an org's
+      "additional models" (Fable among them) from a fetch it makes after a
+      session has started, and caches the answer in `~/.claude.json` for the
+      *next* launch. The first session in a fresh sandbox therefore never
+      lists Fable and refuses `claude-fable-5-1` at
+      `session/set_config_option`, on every adapter version; the second
+      session in the same sandbox accepts it. `Claude.prepare_sandbox/3`
+      opens one prompt-less ACP session and waits for the cache before the
+      host's first real one.
+      """,
+      upstream:
+        {:none,
+         "the CLI's asynchronous bootstrap fetch is its design, not a filed defect; " <>
+           "file one if a synchronous model list is wanted"},
+      measured_against:
+        "claude-agent-acp 0.66.0 (CLI 2.1.220) and 0.75.1 (CLI 2.1.257), " <>
+          "2026-09-07, fresh CLAUDE_CONFIG_DIR per run; warm in under 3s",
+      implemented_by: {Managoat.Runtimes.Claude, :prepare_sandbox, 3},
+      reprobe: """
+      With a fresh `CLAUDE_CONFIG_DIR` and the org credential, drive the
+      pinned adapter over stdio: `initialize`, `session/new`, read the
+      `model` entry of `configOptions`. If the org's additional models are
+      in it on that first session, the CLI now lists them synchronously.
+      """,
+      delete_when: """
+      A cold `session/new` advertises the org's additional models. Then drop
+      `Claude.prepare_sandbox/3` and this entry together; nothing else reads
+      the cache.
+      """
+    },
+    %{
       id: :npm_global_bin_off_path,
       runtimes: ["claude", "codex"],
       summary: "installed ACP adapters are symlinked onto PATH by hand",

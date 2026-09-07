@@ -12,7 +12,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   use ExUnit.Case, async: true
   use Mimic
 
-  alias Managoat.Runtimes.{ACP, Codex, Gemini, OpenCode}
+  import ExUnit.CaptureLog
+
+  alias Managoat.Runtimes.{ACP, Claude, Codex, Gemini, OpenCode}
   alias Managoat.Sandbox
 
   setup :verify_on_exit!
@@ -105,6 +107,77 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert {:error, :missing_openai_api_key} =
                Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", ""}])
+    end
+  end
+
+  describe "Claude" do
+    test "prepare_sandbox/3 warms the CLI's model list through the pinned adapter" do
+      test = self()
+
+      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
+        send(test, {:exec, script, opts})
+        {:ok, "warm\n", 0}
+      end)
+
+      env = [{"ANTHROPIC_API_KEY", "sk-1"}]
+      assert :ok = Claude.prepare_sandbox(@handle, nil, env)
+
+      assert_receive {:exec, script, opts}
+      assert opts[:env] == env
+      # The adapter the turn will use, from where ACP.install/3 put it, in
+      # the directory the turn will run in.
+      assert script =~ "timeout 45 /home/sprite/.local/bin/claude-agent-acp"
+      assert script =~ "cd /home/sprite\n"
+      assert script =~ ~s("method":"initialize")
+      assert script =~ ~s("method":"session/new")
+      # The cache key the CLI writes, in the file it writes it to, and the
+      # short-circuit for a sandbox that is already warm.
+      assert script =~ ~s(cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json")
+      assert script =~ "additionalModelOptionsCache"
+      assert script =~ "echo warm\n  exit 0"
+    end
+
+    test "the OAuth credential is enough to warm with" do
+      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "warm", 0} end)
+      assert :ok = Claude.prepare_sandbox(@handle, nil, [{"CLAUDE_CODE_OAUTH_TOKEN", "t"}])
+    end
+
+    test "a cache that stays cold is logged and provisioning goes on" do
+      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "cold\n", 0} end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", "sk"}])
+        end)
+
+      assert log =~ "did not warm"
+    end
+
+    test "a script that dies is logged with its exit, and provisioning goes on" do
+      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "bash: timeout: not found", 127} end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", "sk"}])
+        end)
+
+      assert log =~ "exited 127"
+      assert log =~ "timeout: not found"
+    end
+
+    test "a sandbox that cannot run the script is a tagged error" do
+      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:error, :unavailable} end)
+
+      assert {:error, {:claude_model_list_warmup, :unavailable}} =
+               Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", "sk"}])
+    end
+
+    test "no credential in the env runs nothing: there is nothing to fetch with" do
+      reject(&Sandbox.exec/4)
+
+      assert :ok = Claude.prepare_sandbox(@handle, nil, [])
+      assert :ok = Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", ""}])
+      assert :ok = Claude.prepare_sandbox(@handle, nil, [{"HOME", "/home/sprite"}])
     end
   end
 
