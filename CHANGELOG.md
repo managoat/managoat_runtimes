@@ -10,6 +10,19 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-07
+
+### Added
+
+- `ACP.execution_limits/2` validates typed Claude SDK limits against the actual
+  runtime; unsupported runtimes and malformed options are refused. Hosts retain
+  ownership of account ceilings, durable reservations and process lifecycle.
+
+### Changed
+
+- Require `managoat_acp ~> 0.4.0` for typed limits. Consumers must handle its
+  fail-closed `unknown` stop reason for malformed prompt responses.
+
 ## [0.3.4] - 2026-09-07
 
 ### Added

@@ -1,7 +1,7 @@
 defmodule Managoat.Runtimes.MixProject do
   use Mix.Project
 
-  @version "0.3.4"
+  @version "0.4.0"
   @source_url "https://github.com/managoat/managoat_runtimes"
 
   def project do
@@ -55,12 +55,9 @@ defmodule Managoat.Runtimes.MixProject do
       # The sandbox the runtimes are provisioned into: exec, write_file,
       # spawn, the Handle and Retry. Both directions decisions/0037 pins.
       {:managoat_sandbox, "~> 0.2.0"},
-      # Protocol.initialize_params/1 and default_client_capabilities/0, for
-      # the params a host sends the adapter this library installed. These
-      # APIs are compatible with ACP 0.1, 0.2, and 0.3; hosts choose the peer's
-      # model-selection contract. The 0.1 floor is 0.1.1 because Quirks
-      # references Usage.from_meta_quota/1, introduced in that release.
-      {:managoat_acp, "~> 0.1.1 or ~> 0.2.0 or ~> 0.3.0"},
+      # Typed execution limits require ACP 0.4. Its unknown-stop behavior is
+      # fail-closed: consumers must not interpret malformed stops as success.
+      {:managoat_acp, "~> 0.4.0"},
       # The runtime config files (claude's .mcp.json and settings.json,
       # gemini's settings.json) are JSON.
       {:jason, "~> 1.2"},
