@@ -16,10 +16,12 @@ defmodule Managoat.Runtimes.Claude do
   ACP defines a session-scoped channel for MCP servers (`session/new`'s
   `mcpServers`), and `Managoat.ACP.Peer` sends the agent's servers
   there correctly (pinned by `peer_mcp_test.exs`). But `claude-agent-acp`
-  (measured on 0.66–0.70) never launches stdio servers passed that way —
-  reproduced standalone, upstream bug
-  [agentclientprotocol/claude-agent-acp#883]. Until that is fixed, the
-  session-scoped path delivers nothing.
+  0.66–0.70 never launched stdio servers passed that way — reproduced
+  standalone, upstream bug [agentclientprotocol/claude-agent-acp#883]. On
+  the 0.75.1 pin (2026-09-07) a stdio server passed only over `session/new`
+  *does* reach the model, and a server named on both paths is registered
+  once; `http`/`sse` entries over the session-scoped path are not yet
+  measured, which is why this provisioning stays until they are.
 
   So `write_config/2` provisions the servers into the sandbox instead, as a
   project `.mcp.json` plus `enableAllProjectMcpServers` in

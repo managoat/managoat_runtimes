@@ -256,17 +256,17 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
         send(test, {:exec, script, opts})
-        {:ok, "0.66.0", 0}
+        {:ok, "0.75.1", 0}
       end)
 
       assert :ok = ACP.install(@handle, "claude", [{"X", "1"}])
 
       assert_receive {:exec, script, opts}
       assert opts[:env] == [{"X", "1"}]
-      assert script =~ "want=0.66.0"
+      assert script =~ "want=0.75.1"
 
       assert script =~
-               "npm install -g --no-progress --silent @agentclientprotocol/claude-agent-acp@0.66.0"
+               "npm install -g --no-progress --silent @agentclientprotocol/claude-agent-acp@0.75.1"
 
       assert script =~ "/home/sprite/.local/bin/claude-agent-acp"
     end

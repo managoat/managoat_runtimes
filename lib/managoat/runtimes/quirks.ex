@@ -87,19 +87,31 @@ defmodule Managoat.Runtimes.Quirks do
       CLI picks up through its `settingSources`.
       """,
       upstream: "https://github.com/agentclientprotocol/claude-agent-acp/issues/883",
-      measured_against: "claude-agent-acp 0.66–0.70, reproduced standalone",
+      measured_against: """
+      claude-agent-acp 0.66–0.70, reproduced standalone: broken. Re-probed on
+      the 0.75.1 pin (2026-09-07), standalone with a stdio server passed only
+      over `session/new`: the model lists and calls its `mcp__<server>__*`
+      tools, so the session-scoped path works for stdio servers there. With
+      both paths on for the same server name, the CLI registered it once —
+      the double-registration this entry warned about did not occur. Not
+      yet re-probed: an `http`/`sse` entry over the session-scoped path,
+      which is how a host delivers a hosted connector with headers.
+      """,
       implemented_by: {Managoat.Runtimes.Claude, :write_config, 2},
       reprobe: """
       Run a conversation with an MCP server declared on the agent, with
       `write_config/2` stubbed out, and check the model can call an
       `mcp__<server>__*` tool. If it can, the session-scoped path works.
+      Repeat with an `http` entry carrying a header before deleting anything:
+      the file path is the only one measured for that shape.
       """,
       delete_when: """
-      `session/new`'s `mcpServers` launches stdio servers. Then drop
-      `Claude.write_config/2` in the same PR that confirms it — leaving both
-      paths on registers every server twice, which is the failure
-      `Managoat.Runtimes.Gemini` already had and fixed by writing to one
-      place only.
+      `session/new`'s `mcpServers` launches stdio servers *and* connects
+      `http`/`sse` entries. The first half is measured true on 0.75.1; the
+      second is not measured. Then drop `Claude.write_config/2`. The 0.75.1
+      re-probe found both paths on to be harmless for a same-named server, so
+      the deletion is a clean-up rather than an urgency — but it stays a
+      deletion, not a permanent second path.
       """
     },
     %{

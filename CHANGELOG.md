@@ -10,6 +10,29 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-07
+
+### Changed
+
+- Pin `@agentclientprotocol/claude-agent-acp` at 0.75.1, up from 0.66.0. The
+  adapter's model list is whatever the Claude Code binary bundled in its SDK
+  dependency reports, and that binary refuses `claude-fable-5-1` below
+  2.1.255: 0.66.0 bundles SDK 0.3.220 (CLI 2.1.220), 0.75.1 bundles SDK
+  0.3.257 (CLI 2.1.257). 0.75.1's `session/set_config_option` also resolves a
+  full model id onto the alias row the CLI advertises, which 0.66.0's exact
+  match did not. Existing installations are corrected by the version check
+  during installation; running connections keep their process until reopened.
+  Measured with real turns on haiku and claude-fable-5-1: the prompt result's
+  `usage` keeps the protocol shape `Managoat.ACP.Usage` reads, and the two
+  notifications new since 0.66 (`_auth/status_update`, `usage_update`) fall
+  through the peer's unknown-notification clause.
+- `:claude_mcp_via_files` re-probed on the new pin, as its entry asks. A stdio
+  server passed only over `session/new` now reaches the model, and a server
+  named on both paths is registered once, so the file-based provisioning is
+  kept for now rather than deleted: `http`/`sse` entries over the
+  session-scoped path are not yet measured, and that is the shape a hosted
+  connector takes. The entry records what was measured and what is left.
+
 ## [0.3.2] - 2026-09-07
 
 ### Changed
