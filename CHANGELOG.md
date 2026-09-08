@@ -10,6 +10,13 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.2]
+
+- Add `ACP.bootstrap_command/3` to install the pinned adapter and exec its argv
+  within one provider command. Setup cannot consume protocol stdin or write to
+  protocol stdout; a failed install prevents adapter startup. Hosts own tracking
+  and termination. Existing standalone installation remains available.
+
 ## [0.4.1]
 
 - Accept Sandbox 0.3 alongside 0.2 so hosts can use its optional confirmed session-termination API.

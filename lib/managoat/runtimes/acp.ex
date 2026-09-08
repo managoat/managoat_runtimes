@@ -375,6 +375,40 @@ defmodule Managoat.Runtimes.ACP do
   end
 
   @doc """
+  Prepare the pinned adapter and exec `program` in one provider command.
+
+  Use this instead of a separate `install/3` when the host must track setup and
+  the adapter under one provider session. Native runtimes return the original
+  argv. Package runtimes run the same installer as `install/3`, with no stdin
+  and all preparation output on stderr, then exec the supplied argv unchanged.
+  A failed install exits without starting the adapter.
+
+  The installer uses its own login shell, as `install/3` does. The final program
+  retains the caller's environment and working directory. The host still owns
+  provisioning, spawn, trusted identity, deadlines and confirmed termination.
+  This function performs no I/O and imposes no execution limit itself.
+  """
+  @spec bootstrap_command(String.t(), String.t(), [String.t()]) :: {String.t(), [String.t()]}
+  def bootstrap_command(runtime, program, args) do
+    case @adapters[runtime] do
+      %{package: nil} ->
+        {program, args}
+
+      %{package: _} ->
+        wrapper = ~S"""
+        bash -lc "$1" </dev/null >&2 || exit "$?"
+        shift
+        exec "$@"
+        """
+
+        {"bash", ["-c", wrapper, "acp-bootstrap", install_script(runtime), program | args]}
+
+      _ ->
+        raise ArgumentError, "runtime #{inspect(runtime)} has no ACP adapter"
+    end
+  end
+
+  @doc """
   Install the pinned adapter into a sprite.
 
   Runs at provision time rather than at spawn: by the time a turn spawns the
@@ -421,24 +455,7 @@ defmodule Managoat.Runtimes.ACP do
   def install(_handle, runtime, _sprite_env) when runtime in ["gemini", "opencode"], do: :ok
 
   def install(handle, runtime, sprite_env) do
-    bin = adapter_bin(runtime)
-    spec = adapter_spec(runtime)
-    version = get_in(@adapters, [runtime, :version])
-
-    script = """
-    set -e
-    want=#{version}
-    bin=/home/sprite/.local/bin/#{bin}
-    have=$("$bin" --version 2>/dev/null | awk '{print $NF}' | tr -d '[:space:]' || true)
-    if [ "$have" != "$want" ]; then
-      npm install -g --no-progress --silent #{spec}
-      mkdir -p /home/sprite/.local/bin
-      ln -sf "$(npm prefix -g)/bin/#{bin}" "$bin"
-    fi
-    "$bin" --version >/dev/null
-    """
-
-    case Managoat.Sandbox.exec(handle, "bash", ["-lc", script],
+    case Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
            env: sprite_env,
            timeout: 180_000
          ) do
@@ -451,6 +468,25 @@ defmodule Managoat.Runtimes.ACP do
       {:error, reason} ->
         {:error, {:acp_adapter_install, reason}}
     end
+  end
+
+  defp install_script(runtime) do
+    bin = adapter_bin(runtime)
+    spec = adapter_spec(runtime)
+    version = get_in(@adapters, [runtime, :version])
+
+    """
+    set -e
+    want=#{version}
+    bin=/home/sprite/.local/bin/#{bin}
+    have=$("$bin" --version 2>/dev/null | awk '{print $NF}' | tr -d '[:space:]' || true)
+    if [ "$have" != "$want" ]; then
+      npm install -g --no-progress --silent #{spec}
+      mkdir -p /home/sprite/.local/bin
+      ln -sf "$(npm prefix -g)/bin/#{bin}" "$bin"
+    fi
+    "$bin" --version >/dev/null
+    """
   end
 
   @doc """
