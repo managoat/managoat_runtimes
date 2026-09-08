@@ -10,6 +10,10 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.1]
+
+- Accept Sandbox 0.3 alongside 0.2 so hosts can use its optional confirmed session-termination API.
+
 ## [0.4.0] - 2026-09-07
 
 ### Added

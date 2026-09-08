@@ -1,7 +1,7 @@
 defmodule Managoat.Runtimes.MixProject do
   use Mix.Project
 
-  @version "0.4.0"
+  @version "0.4.1"
   @source_url "https://github.com/managoat/managoat_runtimes"
 
   def project do
@@ -54,7 +54,7 @@ defmodule Managoat.Runtimes.MixProject do
        runtime: false},
       # The sandbox the runtimes are provisioned into: exec, write_file,
       # spawn, the Handle and Retry. Both directions decisions/0037 pins.
-      {:managoat_sandbox, "~> 0.2.0"},
+      {:managoat_sandbox, "~> 0.2.0 or ~> 0.3.0"},
       # Typed execution limits require ACP 0.4. Its unknown-stop behavior is
       # fail-closed: consumers must not interpret malformed stops as success.
       {:managoat_acp, "~> 0.4.0"},
