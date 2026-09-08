@@ -63,7 +63,7 @@ env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
 | Module | Role |
 |---|---|
 | `Managoat.Runtimes` | The behaviour (`default_env/2`, `write_config/2`, `prepare_sandbox/3`, `skills_root/0`, `skills_sh_agent/0`, and an optional `build_command/5` for a runtime that cannot speak ACP), `for_runtime/1`, the dispatcher from a runtime name to its module, and `default_env/3`, `write_config/3`, `prepare_sandbox/4`, `implements?/3`, the safe way to call the optional ones. The agent is read as a plain map, `t:Managoat.Runtimes.agent/0`, so the host's own record satisfies it. |
-| `Managoat.Runtimes.ACP` | The adapter table: which package and **pinned** version reach ACP for each runtime (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`; gemini and opencode are native), `install/3`, `command/1`, `cwd/1`, `concurrency/1` (how many turns one sandbox takes for the runtime), `asks_permission?/1` (measured, not assumed), `mcp_servers/1` in the shape `session/new` takes, and `initialize_params/1`. |
+| `Managoat.Runtimes.ACP` | The adapter table: which package and **pinned** version reach ACP for each runtime (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`; gemini and opencode are native), `install/3`, `bootstrap_command/3`, `command/1`, `cwd/1`, `concurrency/1` (how many turns one sandbox takes for the runtime), `asks_permission?/1` (measured, not assumed), `mcp_servers/1` in the shape `session/new` takes, and `initialize_params/1`. |
 | `Managoat.Runtimes.{Claude, Codex, Gemini, OpenCode}` | One module per runtime: credentials in, env and files out. Two credential shapes, not four: an env var, or a login exec that consumes the key on stdin (codex). |
 | `Managoat.Runtimes.Layout` | The one table every path derives from: `<home>/<config_dir>/<leaf>` per runtime. gemini and opencode run with `HOME=/tmp`, and deriving the HOME export and the file paths from the same row is what keeps a system prompt from being written where the CLI never looks. |
 | `Managoat.Runtimes.Instructions` | The user-level instructions file each runtime reads at session start (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), which is where the agent's system prompt is delivered. |
@@ -72,6 +72,24 @@ env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
 | `Managoat.Runtimes.Quirks` | Every workaround carried on a runtime's behalf, as a registry: the defect, the upstream issue, how to re-probe it, what to delete when it is fixed, and the function that implements it (a test asserts that function still exists). |
 | `Managoat.Runtimes.Gemini.SessionStore` | The largest of those workarounds: gemini's own session store erases a session in the act of loading it, so this consolidates the store after every turn. Goes when google-gemini/gemini-cli#28775 lands. |
 | `Managoat.Runtimes.Testing.FakeRuntime` | A runtime for tests that reports every callback to an observer, plus two that fail on purpose. Ships in `lib/` so a host's tests can drive their turn machinery without a CLI. |
+
+## Tracking adapter setup with its process
+
+To keep adapter installation inside the command your host tracks, replace the
+separate `ACP.install/3` with:
+
+```elixir
+{bin, args} = ACP.command(runtime)
+{bin, args} = ACP.bootstrap_command(runtime, bin, args)
+# Spawn this argv once through the host's tracked command transport.
+```
+
+For Claude and Codex this runs the same pinned installer, then execs the supplied
+argv. Installer output goes to stderr and its stdin is closed; the final program
+keeps protocol stdin/stdout, the caller's environment and working directory.
+Installation failure exits before the adapter starts. Native runtimes return
+argv unchanged. This helper performs no I/O. Other provisioning remains separate;
+the host must provide trusted session identity, deadlines and remote cleanup.
 
 ## Execution limits
 
