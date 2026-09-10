@@ -17,7 +17,7 @@ defmodule Managoat.Runtimes.OpenCode do
   runtime's name and opencode does not read it at all. The env var belongs to
   the runtime-and-provider pair, not to the provider, and getting it wrong is
   not a degraded turn — every prompt fails with `Authentication required:
-  provider authentication required` (BinaryBourbon/fountain#1460).
+  provider authentication required` (managoat/fountain#1460).
 
   Heads-up: opencode is *not* pre-installed on the sprite base image —
   the first session on a new sprite will install it (10–30s longer than

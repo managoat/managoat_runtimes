@@ -280,7 +280,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       # Not GEMINI_API_KEY. opencode's google provider is `@ai-sdk/google` and
       # reads GOOGLE_GENERATIVE_AI_API_KEY; the key under the other name is
       # ignored and every turn fails to authenticate
-      # (BinaryBourbon/fountain#1460).
+      # (managoat/fountain#1460).
       assert OpenCode.default_env(%{model: "google/gemini-3.1-pro-preview"}, creds) ==
                [{"GOOGLE_GENERATIVE_AI_API_KEY", "g"}, {"HOME", "/tmp"}]
 

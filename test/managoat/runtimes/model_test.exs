@@ -65,7 +65,7 @@ defmodule Managoat.Runtimes.ModelTest do
     # variable per provider, and for google it is not the one the gemini
     # runtime reads. Asserting only "something ending in _API_KEY" is what let
     # `GEMINI_API_KEY` sit here wrong through nine releases
-    # (BinaryBourbon/fountain#1460), so the expected name is written out and a
+    # (managoat/fountain#1460), so the expected name is written out and a
     # new provider has to be named here before this passes.
     @opencode_env_names %{
       "anthropic" => "ANTHROPIC_API_KEY",

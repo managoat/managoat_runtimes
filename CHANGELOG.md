@@ -164,7 +164,7 @@ the package ships without a bump fails the release gate.
 - `Quirks` records `:gemini_usage_in_meta_quota`. gemini leaves ACP's
   `PromptResponse.usage` empty and reports the turn's tokens under a vendor
   extension at `_meta.quota.token_count`, so a host billing from that figure
-  billed nothing for gemini (BinaryBourbon/fountain#1459). The workaround is
+  billed nothing for gemini (managoat/fountain#1459). The workaround is
   `Managoat.ACP.Usage.from_meta_quota/1`, released in managoat_acp 0.1.1, and
   the entry carries the upstream issue and what would delete it.
 
@@ -183,10 +183,10 @@ the package ships without a bump fails the release gate.
   `GEMINI_API_KEY`, which opencode does not read at all. Every opencode turn
   on a Gemini model failed with `Authentication required: provider
   authentication required`; this was true for a tenant's own key as much as a
-  platform one (BinaryBourbon/fountain#1460).
+  platform one (managoat/fountain#1460).
 
 ## [0.1.0] - 2026-09-02
 
 ### Added
 
-- Extracted from Fountain (BinaryBourbon/fountain#1387).
+- Extracted from Fountain (managoat/fountain#1387).
