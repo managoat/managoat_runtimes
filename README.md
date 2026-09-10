@@ -177,6 +177,6 @@ one is corrected, not accepted), and a pin moves in a commit that says why.
 
 ## Licence
 
-Apache-2.0. Extracted from [Fountain](https://github.com/BinaryBourbon/fountain)
+Apache-2.0. Extracted from [Fountain](https://github.com/managoat/fountain)
 under its decision record 0037; the issue numbers in the source are that
 repository's.

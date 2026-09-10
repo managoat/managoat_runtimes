@@ -39,7 +39,7 @@ defmodule Managoat.Runtimes.Quirks do
 
   The same test excludes opencode taking its Google key as
   `GOOGLE_GENERATIVE_AI_API_KEY` while the gemini runtime takes
-  `GEMINI_API_KEY` (BinaryBourbon/fountain#1460). Reading it under that name
+  `GEMINI_API_KEY` (managoat/fountain#1460). Reading it under that name
   is what `@ai-sdk/google` does, no upstream change would make opencode read
   the other one, and there is no version at which we stop exporting it. It is
   recorded in `Managoat.Runtimes.OpenCode`'s moduledoc, next to the clause a
@@ -156,7 +156,7 @@ defmodule Managoat.Runtimes.Quirks do
       the older flat `_meta.inputTokens`, so every gemini turn normalised to
       `nil`: a host that bills from that figure billed nothing, and a spend
       ceiling measured from those bills could not see gemini at all
-      (BinaryBourbon/fountain#1459). `Usage.from_meta_quota/1` reads the
+      (managoat/fountain#1459). `Usage.from_meta_quota/1` reads the
       vendor shape; the protocol's own field still wins where both are
       present.
       """,
