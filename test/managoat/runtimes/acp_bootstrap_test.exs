@@ -7,8 +7,8 @@ defmodule Managoat.Runtimes.ACPBootstrapTest do
 
   setup :verify_on_exit!
 
-  test "native runtimes preserve argv without sandbox I/O" do
-    for runtime <- ["gemini", "opencode"] do
+  test "the image-provided Gemini runtime preserves argv without sandbox I/O" do
+    for runtime <- ["gemini"] do
       {program, args} = ACP.command(runtime)
       assert ACP.bootstrap_command(runtime, program, args) == {program, args}
     end
@@ -18,8 +18,8 @@ defmodule Managoat.Runtimes.ACPBootstrapTest do
     assert_raise ArgumentError, fn -> ACP.bootstrap_command("unknown", "program", []) end
   end
 
-  test "both package runtimes use the standalone installer's exact script" do
-    for runtime <- ["claude", "codex"] do
+  test "package runtimes use the standalone installer's exact script" do
+    for runtime <- ["claude", "codex", "opencode"] do
       {"bash", ["-c", wrapper, "acp-bootstrap", installer, "program", literal]} =
         ACP.bootstrap_command(runtime, "program", [~S[quotes ' " $(exit 91)]])
 

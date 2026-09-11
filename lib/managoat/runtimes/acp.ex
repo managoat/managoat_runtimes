@@ -98,13 +98,11 @@ defmodule Managoat.Runtimes.ACP do
 
   ## The adapter is pinned, and that is load-bearing
 
-  Nothing about the runtime CLIs is version-pinned today: claude, codex and
-  gemini arrive with the sprite base image and OpenCode is an unpinned
-  `bun install -g`. That is survivable for a CLI whose argv changes slowly. It
-  is not survivable for an adapter whose `initialize` response decides whether
-  the feature works at all — an unpinned adapter can silently stop advertising
-  `sessionCapabilities.resume` and downgrade every conversation to a full
-  history replay per turn, with no error anywhere.
+  Claude, Codex and Gemini CLIs arrive with the sprite base image. OpenCode's
+  CLI supplies its own ACP implementation, so its package is pinned here
+  alongside the separate Claude and Codex adapters. An unpinned ACP provider
+  can stop advertising model selection or `sessionCapabilities.resume` and
+  break configured turns or force a full history replay after an upgrade.
 
   So the version is pinned here, the install is idempotent, and the pin moves
   in a PR that says why.
@@ -183,8 +181,8 @@ defmodule Managoat.Runtimes.ACP do
     # local HTTP server inside the sprite and drives it through opencode's own
     # SDK client, rather than being a plain stdio peer. It satisfies the
     # protocol, but it is a second process model to keep in mind when something
-    # hangs. Nothing to install here: `OpenCode.prepare_sandbox/3` already bun-
-    # installs the binary and symlinks it onto PATH.
+    # hangs. The CLI package is pinned here because it supplies ACP itself;
+    # provisioning and reconnects must agree on the same implementation.
     #
     # `asks_permission: false` — measured live on 2026-08-22, not inferred.
     # opencode ran `curl` to an external host and then `rm -rf` under an
@@ -197,8 +195,8 @@ defmodule Managoat.Runtimes.ACP do
     "opencode" => %{
       bin: "opencode",
       args: ["acp"],
-      package: nil,
-      version: nil,
+      package: "opencode-ai",
+      version: "1.18.30",
       asks_permission: false,
       # One turn at a time on a shared sandbox: `opencode acp` starts an HTTP
       # server per process over one sqlite store — a port and a writer
@@ -314,7 +312,7 @@ defmodule Managoat.Runtimes.ACP do
   def execution_limits(_runtime, _attrs),
     do: {:error, :unsupported_execution_limit_runtime}
 
-  @doc "The npm package and version pinned for a runtime, or nil when native."
+  @doc "The npm package and version pinned for a runtime, or nil when supplied by the image."
   @spec adapter_spec(String.t()) :: String.t() | nil
   def adapter_spec(runtime) do
     case @adapters[runtime] do
@@ -420,9 +418,8 @@ defmodule Managoat.Runtimes.ACP do
   provisioning pipeline, so in Fountain this lands *after* the network policy
   has been applied. On an unrestricted sandbox that costs nothing. On a
   restricted one the allowlist has to include the npm registry, or the
-  adapter install fails here — the same exposure
-  `Managoat.Runtimes.OpenCode.prepare_sandbox/3`'s `bun install` has, for the
-  same reason.
+  adapter install fails here. OpenCode's CLI goes through this same installer
+  because its native subcommand is also the ACP implementation.
 
   Idempotent on the exact pinned version: an image that already carries a
   different version is corrected rather than accepted, since "some adapter is
@@ -439,20 +436,16 @@ defmodule Managoat.Runtimes.ACP do
   Registered as `:npm_global_bin_off_path` in `Managoat.Runtimes.Quirks`.
 
   So we symlink into `/home/sprite/.local/bin`, which *is* on PATH. This is the
-  same shape as `Managoat.Runtimes.OpenCode.prepare_sandbox/3`, which hit the
-  identical problem with bun's global bin, and the absolute path is hardcoded
-  for the same reason it is there: `~` resolves against whatever `HOME` the
-  caller happens to have.
+  location used for every pinned ACP provider, including OpenCode. The
+  absolute path is hardcoded because `~` resolves against whatever `HOME`
+  the caller happens to have.
   """
   @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
   def install(sprite, runtime, sprite_env)
 
-  # Native ACP: the runtime speaks the protocol itself, and is already on the
-  # sprite — gemini from the base image, opencode from
-  # `OpenCode.prepare_sandbox/3`'s bun install. Nothing to install, and for
-  # gemini nothing we can pin either: the version floor is whatever the image
-  # carries, which gate 1 recorded as an open exposure.
-  def install(_handle, runtime, _sprite_env) when runtime in ["gemini", "opencode"], do: :ok
+  # Gemini speaks native ACP from the base image. OpenCode is also native,
+  # but we install its CLI package, so it follows the pinned path below.
+  def install(_handle, "gemini", _sprite_env), do: :ok
 
   def install(handle, runtime, sprite_env) do
     case Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],

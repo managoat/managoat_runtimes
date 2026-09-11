@@ -28,6 +28,7 @@ defmodule Managoat.Runtimes.OpenCode do
 
   @behaviour Managoat.Runtimes
 
+  alias Managoat.Runtimes.ACP
   alias Managoat.Runtimes.Layout
   alias Managoat.Runtimes.Model
 
@@ -73,24 +74,18 @@ defmodule Managoat.Runtimes.OpenCode do
     end
   end
 
-  # opencode isn't on the default sprite image. Install it via bun and
-  # symlink into ~/.local/bin (which the sprite's default PATH includes;
-  # bun's own global bin at /.sprite/languages/bun/bin is not on PATH).
-  # Idempotent — `command -v` short-circuits on subsequent calls.
+  # Use the same exact pin as reconnects and bounded ACP bootstrap. Calling
+  # this runtime callback alone still prepares a usable OpenCode installation.
   @impl true
   def prepare_sandbox(handle, _agent, sprite_env) do
+    with :ok <- ACP.install(handle, @runtime, sprite_env) do
+      prepare_workspace(handle, sprite_env)
+    end
+  end
+
+  defp prepare_workspace(handle, sprite_env) do
     install_script = """
     set -e
-
-    # Install opencode + symlink onto PATH if missing.  We hardcode the
-    # absolute path because the runtime overrides HOME=/tmp at spawn time
-    # (see comment below), so `~/.local/bin` can resolve to /tmp/.local
-    # depending on when the script runs.
-    if ! command -v opencode >/dev/null; then
-      bun install -g opencode-ai
-      mkdir -p /home/sprite/.local/bin
-      ln -sf "$(bun pm bin -g)/opencode" /home/sprite/.local/bin/opencode
-    fi
 
     # opencode insists on running inside a git repo, and the sprite user
     # can't `git init` directly in $HOME (work-tree perms). Use /tmp;

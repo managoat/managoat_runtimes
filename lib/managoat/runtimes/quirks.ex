@@ -195,10 +195,9 @@ defmodule Managoat.Runtimes.Quirks do
       summary: "opencode is installed into every sandbox at provision time",
       why: """
       opencode does not ship in the sprite base image, so the first session on
-      a new sandbox pays a `bun install -g opencode-ai` plus a symlink onto
-      PATH — 10–30s the other runtimes do not pay. It is also the one runtime
-      we cannot version-pin this way, since the install takes whatever is
-      current.
+      a new sandbox installs the exact `opencode-ai` version from the ACP
+      adapter table and symlinks it onto PATH. Later preparations check that
+      version instead of accepting any installed binary.
       """,
       upstream: {:none, "a sprite base-image decision on our side, not a defect in opencode"},
       measured_against: "sprite base image as of 2026-08-22",
@@ -277,16 +276,15 @@ defmodule Managoat.Runtimes.Quirks do
     },
     %{
       id: :npm_global_bin_off_path,
-      runtimes: ["claude", "codex"],
-      summary: "installed ACP adapters are symlinked onto PATH by hand",
+      runtimes: ["claude", "codex", "opencode"],
+      summary: "installed ACP providers are symlinked onto PATH by hand",
       why: """
       `npm prefix -g` on the sprite is inside the nvm tree, whose `bin/` is not
       on the default PATH: `command -v claude-agent-acp` after a successful
       global install returns nothing, and the spawn then fails with `command
       not found` — which reads like a protocol bug and is not one. So the
-      install symlinks into `/home/sprite/.local/bin`, which is on PATH. bun
-      has the identical problem, handled the same way in
-      `OpenCode.prepare_sandbox/3`.
+      shared installer symlinks into `/home/sprite/.local/bin`, which is on
+      PATH. OpenCode uses this same installer for its CLI package.
       """,
       upstream: {:none, "sprite base-image PATH, ours to change"},
       measured_against: "verified on a live sprite 2026-08-10, node v24.18.0",
@@ -296,9 +294,8 @@ defmodule Managoat.Runtimes.Quirks do
       `command -v` it without the symlink.
       """,
       delete_when: """
-      The sprite's default PATH includes npm's and bun's global bin
-      directories. Both symlink steps go, here and in
-      `OpenCode.prepare_sandbox/3`.
+      The sprite's default PATH includes npm's global bin directory. The
+      shared installer's symlink step can then be removed.
       """
     }
   ]

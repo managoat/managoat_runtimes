@@ -10,6 +10,14 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-11
+
+- Pin OpenCode's native ACP implementation to `opencode-ai@1.18.30`. Provisioning,
+  reconnect installation and command bootstrap use the shared version check,
+  replacing a different installed version instead of accepting any binary.
+  `OpenCode.prepare_sandbox/3` delegates installation to `ACP.install/3` and
+  propagates its tagged errors before preparing the workspace.
+
 ## [0.4.3] - 2026-09-08
 
 - Accept Sandbox 0.4 alongside 0.2 and 0.3 so hosts can use fresh creation
