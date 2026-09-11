@@ -266,11 +266,9 @@ defmodule Managoat.Runtimes.ACPTest do
 
       # opencode's `acp` subcommand starts a local HTTP server inside the
       # sprite and drives it through its own SDK — a heavier process model than
-      # the others, but nothing for us to install: OpenCode.prepare_sandbox/3
-      # already bun-installs it.
+      # the others. Its CLI is pinned because that is its ACP implementation.
       assert {"opencode", ["acp"]} = ACP.command("opencode")
-      assert is_nil(ACP.adapter_spec("opencode"))
-      assert :ok = ACP.install(%{name: "s"}, "opencode", [])
+      assert ACP.adapter_spec("opencode") == "opencode-ai@1.18.30"
     end
 
     test "each runtime runs where its own runtime module prepared" do

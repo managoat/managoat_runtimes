@@ -295,31 +295,50 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert OpenCode.default_env(nil, creds) == [{"HOME", "/tmp"}]
     end
 
-    test "prepare_sandbox/3 installs opencode onto PATH and git-inits its workspace" do
+    test "prepare_sandbox/3 pins OpenCode before preparing its workspace" do
       test = self()
 
-      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
+      expect(Sandbox, :exec, 2, fn @handle, "bash", ["-lc", script], opts ->
         send(test, {:exec, script, opts})
         {:ok, "", 0}
       end)
 
       assert :ok = OpenCode.prepare_sandbox(@handle, nil, [{"HOME", "/tmp"}])
 
-      assert_receive {:exec, script, opts}
+      assert_receive {:exec, installer, opts}
       assert opts[:env] == [{"HOME", "/tmp"}]
-      assert script =~ "bun install -g opencode-ai"
-      assert script =~ "/home/sprite/.local/bin/opencode"
-      assert script =~ "/tmp/opencode-workspace"
+      assert installer =~ "opencode-ai@1.18.30"
+      assert installer =~ "/home/sprite/.local/bin/opencode"
+      assert_receive {:exec, workspace, _opts}
+      assert workspace =~ "/tmp/opencode-workspace"
+      refute workspace =~ "bun install"
     end
 
-    test "a failed install is a tagged error" do
-      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "bun: not found", 127} end)
-      assert {:error, {:opencode_install_exit, 127}} = OpenCode.prepare_sandbox(@handle, nil, [])
+    test "a failed pin prevents workspace preparation and preserves the installer error" do
+      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "npm: not found", 127} end)
+
+      assert {:error, {:acp_adapter_install_exit, 127, "npm: not found"}} =
+               OpenCode.prepare_sandbox(@handle, nil, [])
 
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:error, :unavailable} end)
 
-      assert {:error, {:opencode_install, :unavailable}} =
+      assert {:error, {:acp_adapter_install, :unavailable}} =
                OpenCode.prepare_sandbox(@handle, nil, [])
+    end
+
+    test "workspace failures retain their existing error after installation" do
+      for failure <- [{:ok, "git failed", 17}, {:error, :unavailable}] do
+        expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "", 0} end)
+        expect(Sandbox, :exec, fn _h, _c, _a, _o -> failure end)
+
+        expected =
+          case failure do
+            {:ok, _, code} -> {:opencode_install_exit, code}
+            {:error, reason} -> {:opencode_install, reason}
+          end
+
+        assert {:error, ^expected} = OpenCode.prepare_sandbox(@handle, nil, [])
+      end
     end
   end
 
