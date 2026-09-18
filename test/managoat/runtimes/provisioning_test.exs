@@ -379,6 +379,51 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert :ok = ACP.install(@handle, "codex", [])
     end
 
+    test "a probe that crashes twice fails with the signal and never reinstalls" do
+      dir = adapter_fixture("kill -SEGV $$")
+
+      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
+        {output, code} = run_install(script, dir)
+        assert code == 139
+        refute output =~ "npm-install"
+        assert output =~ "codex-acp --version died on signal 11"
+        {:ok, output, code}
+      end)
+
+      assert {:error, {:acp_adapter_install_exit, 139, _}} = ACP.install(@handle, "codex", [])
+    end
+
+    test "a probe that crashes once is probed again, not reinstalled" do
+      dir =
+        adapter_fixture("""
+        if [ ! -e "$0.crashed" ]; then : > "$0.crashed"; kill -SEGV $$; fi
+        echo '@agentclientprotocol/codex-acp 1.10.0'
+        """)
+
+      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
+        {output, code} = run_install(script, dir)
+        assert code == 0
+        refute output =~ "npm-install"
+        {:ok, output, code}
+      end)
+
+      assert :ok = ACP.install(@handle, "codex", [])
+    end
+
+    test "a stale or broken adapter is still reinstalled" do
+      for body <- ["echo '@agentclientprotocol/codex-acp 1.9.0'", "exit 1"] do
+        dir = adapter_fixture(body)
+
+        expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
+          {output, code} = run_install(script, dir)
+          assert output =~ "npm-install"
+          {:ok, output, code}
+        end)
+
+        assert {:error, {:acp_adapter_install_exit, 91, _}} = ACP.install(@handle, "codex", [])
+      end
+    end
+
     test "a failed install names the exit code and the first 500 bytes of output" do
       long = String.duplicate("e", 600)
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, long, 1} end)
@@ -389,5 +434,22 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:error, :unavailable} end)
       assert {:error, {:acp_adapter_install, :unavailable}} = ACP.install(@handle, "claude", [])
     end
+  end
+
+  # An adapter at the pinned path whose `--version` runs `body`. The script runs
+  # locally with a stub npm, so no real package manager runs.
+  defp adapter_fixture(body) do
+    dir = Path.join(System.tmp_dir!(), "acp-probe-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    File.write!(Path.join(dir, "codex-acp"), "#!/bin/bash\n" <> body <> "\n")
+    File.chmod!(Path.join(dir, "codex-acp"), 0o755)
+    dir
+  end
+
+  defp run_install(script, dir) do
+    script = String.replace(script, "/home/sprite/.local/bin", dir)
+    script = "npm() { echo npm-install; return 91; }\n" <> script
+    System.cmd("bash", ["-c", script], stderr_to_stdout: true)
   end
 end
