@@ -10,6 +10,12 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-18
+
+- Accept Sandbox 0.5 alongside 0.2, 0.3 and 0.4 so hosts can use its execution
+  deadline and explicit force-termination APIs without overriding this dependency.
+  Runtime setup and pinned ACP adapter versions are unchanged.
+
 ## [0.4.3] - 2026-09-08
 
 - Accept Sandbox 0.4 alongside 0.2 and 0.3 so hosts can use fresh creation
