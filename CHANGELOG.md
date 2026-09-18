@@ -10,6 +10,16 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-18
+
+- A crashing adapter version probe no longer triggers a reinstall. When
+  `--version` dies on a signal, the installer probes once more, then fails with
+  that exit code (for example 139) and names the signal on stderr. Before, the
+  crash left the version empty, so `npm install -g` rewrote the shared global
+  prefix while other sessions could be running the adapter from it
+  (managoat/fountain#2402). A missing, stale or non-zero-exiting adapter is
+  still reinstalled.
+
 ## [0.4.4] - 2026-09-18
 
 - Accept Sandbox 0.5 alongside 0.2, 0.3 and 0.4 so hosts can use its execution

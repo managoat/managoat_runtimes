@@ -479,7 +479,22 @@ defmodule Managoat.Runtimes.ACP do
     set -e
     want=#{version}
     bin=/home/sprite/.local/bin/#{bin}
-    have=$("$bin" --version 2>/dev/null | awk '{print $NF}' | tr -d '[:space:]' || true)
+    probe() { rc=0; out=$("$bin" --version 2>/dev/null) || rc=$?; }
+    have=
+    if [ -e "$bin" ]; then
+      probe
+      # A probe killed by a signal (128+n) is a crash, not a stale install.
+      # Reinstalling would rewrite the global prefix other sessions may be
+      # running the adapter from, so probe once more and then fail.
+      if [ "$rc" -gt 128 ]; then probe; fi
+      if [ "$rc" -gt 128 ]; then
+        echo "$bin --version died on signal $((rc - 128))" >&2
+        exit "$rc"
+      fi
+      if [ "$rc" -eq 0 ]; then
+        have=$(printf '%s\\n' "$out" | awk '{print $NF}' | tr -d '[:space:]')
+      fi
+    fi
     if [ "$have" != "$want" ]; then
       npm install -g --no-progress --silent #{spec}
       mkdir -p /home/sprite/.local/bin
