@@ -44,7 +44,7 @@ defmodule Managoat.Runtimes do
 
   ## Calling the optional callbacks
 
-  Four callbacks are optional and the implementation matrix is genuinely
+  Five callbacks are optional and the implementation matrix is genuinely
   sparse, so a host has to guard the call — and the obvious guard is wrong:
 
       # WRONG: silently no-ops in an escript or a release
@@ -64,6 +64,7 @@ defmodule Managoat.Runtimes do
       env = Managoat.Runtimes.default_env(mod, agent, credentials)   # or []
       :ok = Managoat.Runtimes.write_config(mod, handle, agent)       # or :ok
       :ok = Managoat.Runtimes.prepare_sandbox(mod, handle, agent, env)
+      env = env ++ Managoat.Runtimes.model_env(mod, model)            # or []
 
   `c:build_command/5` has no default to fall back to; ask
   `implements?/3` and decide.
@@ -213,6 +214,23 @@ defmodule Managoat.Runtimes do
             ) :: :ok | {:error, term()}
 
   @doc """
+  Optionally name env pairs the adapter process needs for a turn on `model`,
+  on top of `c:default_env/2`. `model` is the id the host will select, bare
+  or with its provider prefix. `[]` by default.
+
+  This is for a model the pinned adapter selects only through its process
+  environment: claude's `opus` alias names one Opus per process, and
+  `claude-opus-5` needs `ANTHROPIC_DEFAULT_OPUS_MODEL` to be that one (see
+  `Managoat.Runtimes.Claude`). The pairs belong to the spawn, not the sandbox,
+  so a host that keeps an adapter running across turns respawns it when the
+  answer for the next turn's model differs from the one it was spawned with.
+
+  Optional, so call it through `model_env/2` — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @callback model_env(model :: String.t() | nil) :: [{String.t(), String.t()}]
+
+  @doc """
   Absolute path on the sprite where inline skills are written as
   `<skills_root>/<name>/SKILL.md`. Each runtime points this at whatever
   directory its CLI scans for skills.
@@ -231,7 +249,11 @@ defmodule Managoat.Runtimes do
   """
   @callback skills_sh_agent() :: String.t()
 
-  @optional_callbacks build_command: 5, default_env: 2, write_config: 2, prepare_sandbox: 3
+  @optional_callbacks build_command: 5,
+                      default_env: 2,
+                      write_config: 2,
+                      prepare_sandbox: 3,
+                      model_env: 1
 
   @runtime_modules %{
     "claude" => Managoat.Runtimes.Claude,
@@ -283,10 +305,20 @@ defmodule Managoat.Runtimes do
     do: dispatch(mod, :prepare_sandbox, [handle, agent, sprite_env], :ok)
 
   @doc """
+  Dispatch `c:model_env/1`, or `[]` when the runtime does not implement it.
+
+  Use this rather than guarding the call yourself — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @spec model_env(module(), String.t() | nil) :: [{String.t(), String.t()}]
+  def model_env(mod, model) when is_atom(mod),
+    do: dispatch(mod, :model_env, [model], [])
+
+  @doc """
   Whether `mod` implements the optional callback `fun/arity`, loading it
   first if it has not been loaded yet.
 
-  The three callbacks with a sensible default have a dispatcher above;
+  The four callbacks with a sensible default have a dispatcher above;
   `c:build_command/5` has none — there is no argv to fall back to — so a host
   on the legacy spawn path asks this before calling it, and decides for
   itself what an unimplemented runtime means.

@@ -241,38 +241,63 @@ defmodule Managoat.Runtimes.Quirks do
       """
     },
     %{
-      id: :claude_model_list_warmup,
+      id: :claude_opus_alias,
       runtimes: ["claude"],
-      summary: "claude's model list is warmed with a throwaway session at provisioning",
+      summary: "claude-opus-5 is selectable only with the opus alias pointed at it",
       why: """
-      The Claude Code binary bundled in the adapter's SDK learns an org's
-      "additional models" (Fable among them) from a fetch it makes after a
-      session has started, and caches the answer in `~/.claude.json` for the
-      *next* launch. The first session in a fresh sandbox therefore never
-      lists Fable and refuses `claude-fable-5-1` at
-      `session/set_config_option`, on every adapter version; the second
-      session in the same sandbox accepts it. `Claude.prepare_sandbox/3`
-      opens one prompt-less ACP session and waits for the cache before the
-      host's first real one.
+      `session/set_config_option` accepts only the rows the bundled CLI lists,
+      resolving a full model id onto the alias row that serves it. CLI 2.1.280
+      (adapter 0.81.2) moved `opus` to Opus 5.5 and lists no Opus 5 row, so
+      `claude-opus-5` is refused with "Invalid value for config option model".
+      `ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5` points the alias back, and
+      then `claude-opus-5-5` is the one refused: one Opus per process.
+      `Claude.model_env/1` names the pair per turn, and the host spawns with it.
       """,
       upstream:
         {:none,
-         "the CLI's asynchronous bootstrap fetch is its design, not a filed defect; " <>
-           "file one if a synchronous model list is wanted"},
+         "the CLI tracking the newest Opus under its alias is its design; " <>
+           "the model is still served by the API"},
       measured_against:
-        "claude-agent-acp 0.66.0 (CLI 2.1.220) and 0.75.1 (CLI 2.1.257), " <>
-          "2026-09-07, fresh CLAUDE_CONFIG_DIR per run; warm in under 3s",
-      implemented_by: {Managoat.Runtimes.Claude, :prepare_sandbox, 3},
+        "claude-agent-acp 0.81.2 (CLI 2.1.280), 2026-09-25: plain, claude-opus-5 refused " <>
+          "and claude-opus-5-5 served; with the env pair, claude-opus-5 served and " <>
+          "claude-opus-5-5 refused (usage_update _meta._claude/model)",
+      implemented_by: {Managoat.Runtimes.Claude, :model_env, 1},
       reprobe: """
-      With a fresh `CLAUDE_CONFIG_DIR` and the org credential, drive the
-      pinned adapter over stdio: `initialize`, `session/new`, read the
-      `model` entry of `configOptions`. If the org's additional models are
-      in it on that first session, the CLI now lists them synchronously.
+      With the pinned adapter and no `ANTHROPIC_DEFAULT_OPUS_MODEL`, send
+      `session/set_config_option` with `claude-opus-5`. If it is accepted, the
+      CLI lists Opus 5 again and the pair is unnecessary.
       """,
       delete_when: """
-      A cold `session/new` advertises the org's additional models. Then drop
-      `Claude.prepare_sandbox/3` and this entry together; nothing else reads
-      the cache.
+      No host offers `claude-opus-5` any more (it is retired from the catalog
+      and its agents moved), or a re-probe finds it accepted without the pair.
+      Then drop `Claude.model_env/1` and this entry together.
+      """
+    },
+    %{
+      id: :claude_thinking_summaries,
+      runtimes: ["claude"],
+      summary: "claude streams thinking only with showThinkingSummaries set",
+      why: """
+      CLI 2.1.280 (adapter 0.81.2) defaults `showThinkingSummaries` to false,
+      and the API then returns thinking with its display omitted. The adapter
+      has no text to forward, so no `agent_thought_chunk` reaches the host
+      where 0.75.1 streamed dozens per turn. `Claude.write_config/2` writes the
+      setting into `~/.claude/settings.json` on every provision and wake.
+      """,
+      upstream:
+        {:none,
+         "a CLI default, not a defect; the adapter forwards whatever thinking text arrives"},
+      measured_against:
+        "claude-agent-acp 0.81.2 (CLI 2.1.280), 2026-09-25, claude-haiku-4-5: " <>
+          "0 thought chunks without the setting, 41 with it",
+      implemented_by: {Managoat.Runtimes.Claude, :write_config, 2},
+      reprobe: """
+      Run a turn that thinks (a haiku turn asked to reason briefly) with an
+      empty `settings.json`, and count `agent_thought_chunk` updates.
+      """,
+      delete_when: """
+      The CLI streams thinking text to the adapter by default again, or no host
+      shows thinking. Then drop the setting from `Claude.write_config/2`.
       """
     },
     %{

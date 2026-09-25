@@ -10,6 +10,37 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-25
+
+Breaking: `Claude.prepare_sandbox/3` is gone, and on the new adapter pin
+`claude-opus-5` is selectable only when the host adds `model_env/2` to the
+adapter's spawn env.
+
+- The claude adapter pin moves from 0.75.1 to 0.81.2 (CLI 2.1.257 → 2.1.280).
+  It lists the org's additional models, Fable among them, on a cold
+  `session/new`, on an API key and on a Claude.ai OAuth token alike. Before, a
+  first session never listed Fable, and on an OAuth token no session did.
+- The model-list warm-up is removed with its quirk entry,
+  `:claude_model_list_warmup`, as the entry's deletion condition said. On an
+  OAuth token the cache never populated, so it polled out its 30s bound on
+  every provision and every wake. In Fountain's production that made the
+  median subscription-token wake 36s, against 6s on an API key.
+- New optional callback `model_env/1`, dispatched by `model_env/2`: env the
+  adapter process needs for a turn's model. The 0.81.2 CLI's `opus` alias
+  means Opus 5.5, so claude answers `ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5`
+  for `claude-opus-5` and nothing otherwise. One Opus per process: a host that
+  reuses an adapter respawns it when the answer changes. Quirk
+  `:claude_opus_alias`.
+- `Claude.write_config/2` always writes `~/.claude/settings.json` with
+  `showThinkingSummaries: true`, with or without MCP servers. The 0.81.2 CLI
+  otherwise omits thinking text, and no `agent_thought_chunk` reaches the host.
+  Quirk `:claude_thinking_summaries`.
+- Verified against 0.75.1 with the same scenarios and real turns: unchanged
+  `initialize` capabilities, resume without replay, MCP over `.mcp.json` and
+  over `session/new`, `maxTurns` through `_meta.claudeCode.options`, and the
+  prompt result's `usage`. `tool_call` gains `name` and `usage_update` gains
+  `_meta._claude/model`, both additive.
+
 ## [0.4.5] - 2026-09-18
 
 - A crashing adapter version probe no longer triggers a reinstall. When

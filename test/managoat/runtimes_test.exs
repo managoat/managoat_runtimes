@@ -127,6 +127,10 @@ defmodule Managoat.RuntimesTest do
       assert Runtimes.write_config(Managoat.Runtimes.Codex, :handle, %{}) == :ok
     end
 
+    test "model_env/2 is []" do
+      assert Runtimes.model_env(Managoat.Runtimes.Codex, "gpt-5") == []
+    end
+
     test "default_env/3 is []" do
       # No runtime is missing default_env/2; a module that is not a runtime at
       # all stands in for the fifth one that will be.
@@ -144,7 +148,8 @@ defmodule Managoat.RuntimesTest do
       assert Runtimes.default_env(Managoat.Runtimes.Claude, %{}, %{anthropic_api_key: "sk-x"}) ==
                [{"ANTHROPIC_API_KEY", "sk-x"}]
 
-      assert Runtimes.write_config(Managoat.Runtimes.Claude, :handle, nil) == :ok
+      assert Runtimes.model_env(Managoat.Runtimes.Claude, "claude-opus-5") ==
+               [{"ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5"}]
     end
   end
 end
