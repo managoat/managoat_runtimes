@@ -57,6 +57,14 @@ defmodule Managoat.Runtimes.Claude do
   host's first real session. Best-effort: a cache that stays cold is logged
   and provisioning goes on, since only the additional models are affected.
   Registered as `:claude_model_list_warmup` in `Managoat.Runtimes.Quirks`.
+
+  Only an `ANTHROPIC_API_KEY` is warmed. On a `CLAUDE_CODE_OAUTH_TOKEN` (a
+  Claude.ai subscription) the fetch never populates the cache, so the
+  warm-up could only poll out its 30s bound, and it did so on every
+  provision and every wake of the same sandbox, since a cold cache is never
+  skipped (managoat/fountain, measured 2026-09-25). The warm-up is not run
+  there; that path's first session lists the built-in models only, as it did
+  with the warm-up.
   """
 
   @behaviour Managoat.Runtimes
@@ -135,9 +143,9 @@ defmodule Managoat.Runtimes.Claude do
   @doc """
   Warm the CLI's additional-models cache before the host's first session (see
   the moduledoc). Runs the pinned adapter once with no prompt, so it needs the
-  credential the turn will use: with neither `ANTHROPIC_API_KEY` nor
-  `CLAUDE_CODE_OAUTH_TOKEN` in `sprite_env` there is nothing to fetch with,
-  and nothing is run.
+  credential the turn will use, and only an `ANTHROPIC_API_KEY` warms: with no
+  key in `sprite_env`, or with a `CLAUDE_CODE_OAUTH_TOKEN` (which never
+  populates the cache), nothing is run.
 
   `:ok` whether the cache warmed or not — a cold cache costs the additional
   models only, and is logged. A sandbox that cannot run the script at all is
@@ -145,7 +153,7 @@ defmodule Managoat.Runtimes.Claude do
   """
   @impl true
   def prepare_sandbox(handle, _agent, sprite_env) do
-    if credential?(sprite_env) do
+    if warmable?(sprite_env) do
       case Managoat.Sandbox.exec(handle, "bash", ["-lc", warmup_script()],
              env: sprite_env,
              timeout: 90_000
@@ -175,13 +183,17 @@ defmodule Managoat.Runtimes.Claude do
     end
   end
 
-  defp credential?(sprite_env) do
-    Enum.any?(sprite_env, fn
-      {k, v} when k in ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] ->
-        is_binary(v) and v != ""
+  # `default_env/2` exports one credential or the other, never both, and
+  # `fall_back_to_api_key/2` removes the token. An env carrying both is not
+  # one this module builds, so it takes the path that costs nothing.
+  defp warmable?(sprite_env) do
+    set?(sprite_env, "ANTHROPIC_API_KEY") and not set?(sprite_env, "CLAUDE_CODE_OAUTH_TOKEN")
+  end
 
-      _ ->
-        false
+  defp set?(sprite_env, key) do
+    Enum.any?(sprite_env, fn
+      {^key, v} -> is_binary(v) and v != ""
+      _ -> false
     end)
   end
 
@@ -190,9 +202,9 @@ defmodule Managoat.Runtimes.Claude do
   # One ACP session with no prompt, fed from the same block that polls for
   # the cache: closing stdin is what ends the adapter, and `timeout` bounds
   # it if a version ever ignores EOF. The 30s poll bound is generous against
-  # the ~3s measured, and is also the whole cost of a credential the org
-  # refuses (nothing to fetch, the poll runs out); the exec timeout sits
-  # above both. Idempotent — a warm sandbox (a shared one on its second
+  # the ~3s measured, and is also the whole cost of a credential that never
+  # warms (the poll runs out), which is why the OAuth token is not run
+  # through it; the exec timeout sits above both. Idempotent — a warm sandbox (a shared one on its second
   # conversation) exits before running anything.
   defp warmup_script do
     cwd = Layout.cwd(@runtime)

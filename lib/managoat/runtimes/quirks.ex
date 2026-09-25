@@ -253,7 +253,9 @@ defmodule Managoat.Runtimes.Quirks do
       `session/set_config_option`, on every adapter version; the second
       session in the same sandbox accepts it. `Claude.prepare_sandbox/3`
       opens one prompt-less ACP session and waits for the cache before the
-      host's first real one.
+      host's first real one. Only on an `ANTHROPIC_API_KEY`: a
+      `CLAUDE_CODE_OAUTH_TOKEN` never populates the cache, and running the
+      warm-up there cost a 30s poll on every provision and wake.
       """,
       upstream:
         {:none,

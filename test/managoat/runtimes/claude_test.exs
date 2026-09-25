@@ -129,4 +129,46 @@ defmodule Managoat.Runtimes.ClaudeTest do
       assert {"ANTHROPIC_API_KEY", "fresh-key"} in result
     end
   end
+
+  describe "prepare_sandbox/3 (the model-list warm-up)" do
+    test "warms on an API key and reports nothing when the cache lands", %{handle: handle} do
+      test = self()
+
+      Mimic.expect(Sandbox, :exec, fn ^handle, "bash", ["-lc", script], opts ->
+        send(test, {:exec, script, opts})
+        {:ok, "warm\n", 0}
+      end)
+
+      env = [{"ANTHROPIC_API_KEY", "sk-ant"}]
+      assert Claude.prepare_sandbox(handle, nil, env) == :ok
+      assert_received {:exec, script, opts}
+      assert script =~ "additionalModelOptionsCache"
+      assert opts[:env] == env
+    end
+
+    test "is skipped on an OAuth token, which never warms", %{handle: handle} do
+      Mimic.reject(&Sandbox.exec/4)
+
+      assert Claude.prepare_sandbox(handle, nil, [{"CLAUDE_CODE_OAUTH_TOKEN", "oauth"}]) == :ok
+
+      assert Claude.prepare_sandbox(handle, nil, [
+               {"CLAUDE_CODE_OAUTH_TOKEN", "oauth"},
+               {"ANTHROPIC_API_KEY", "sk-ant"}
+             ]) == :ok
+    end
+
+    test "is skipped with no credential", %{handle: handle} do
+      Mimic.reject(&Sandbox.exec/4)
+
+      assert Claude.prepare_sandbox(handle, nil, []) == :ok
+      assert Claude.prepare_sandbox(handle, nil, [{"ANTHROPIC_API_KEY", ""}]) == :ok
+    end
+
+    test "a sandbox that cannot run the script is an error", %{handle: handle} do
+      Mimic.expect(Sandbox, :exec, fn _h, "bash", _args, _opts -> {:error, :gone} end)
+
+      assert Claude.prepare_sandbox(handle, nil, [{"ANTHROPIC_API_KEY", "sk-ant"}]) ==
+               {:error, {:claude_model_list_warmup, :gone}}
+    end
+  end
 end

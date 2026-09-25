@@ -10,6 +10,16 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-09-25
+
+- `Claude.prepare_sandbox/3` warms the model list only on an
+  `ANTHROPIC_API_KEY`. On a `CLAUDE_CODE_OAUTH_TOKEN` the cache never
+  populates, so the warm-up polled out its 30s bound and logged "claude model
+  list did not warm" on every provision and every wake of the same sandbox. In
+  Fountain's production that was every subscription-token wake since 0.3.4
+  (median 36s, against 6s on an API key). The OAuth path now skips it; its first
+  session lists the built-in models only, as it already did.
+
 ## [0.4.5] - 2026-09-18
 
 - A crashing adapter version probe no longer triggers a reinstall. When
