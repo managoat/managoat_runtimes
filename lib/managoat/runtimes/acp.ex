@@ -139,11 +139,25 @@ defmodule Managoat.Runtimes.ACP do
     # notifications (`_auth/status_update`, `usage_update`) fall through
     # `Managoat.ACP.Peer`'s unknown-notification clause. Re-probed
     # `:claude_mcp_via_files` at the same time; see `Managoat.Runtimes.Quirks`.
+    #
+    # 0.75.1 → 0.81.2 on 2026-09-25 (CLI 2.1.257 → 2.1.280), which lists the
+    # org's additional models on a cold `session/new`, so the model-list
+    # warm-up went. Measured against 0.75.1 with the same scenarios and real
+    # turns, on an API key and on an OAuth token: `initialize` capabilities
+    # (`loadSession`, `sessionCapabilities.resume`) are unchanged; resume keeps
+    # context without replay; MCP over `.mcp.json` and over `session/new` both
+    # reach the model; `_meta.claudeCode.options.maxTurns` still ends the turn;
+    # the prompt result's `usage` keeps its fields. Additive only: `tool_call`
+    # gains `name`, `usage_update` gains `_meta._claude/model`. Two changes
+    # needed code: the `opus` alias now means Opus 5.5 (`:claude_opus_alias`)
+    # and thinking needs `showThinkingSummaries` (`:claude_thinking_summaries`).
+    # 0.77.0 stopped forwarding `claudeCode.options.agent`, which nothing here
+    # sends.
     "claude" => %{
       bin: "claude-agent-acp",
       args: [],
       package: "@agentclientprotocol/claude-agent-acp",
-      version: "0.75.1"
+      version: "0.81.2"
     },
     # Native: `gemini --acp`. Advertises `loadSession: true` and **no**
     # `sessionCapabilities`, so every turn after the first pays a full replay

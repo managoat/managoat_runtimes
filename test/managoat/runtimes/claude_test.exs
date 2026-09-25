@@ -2,7 +2,8 @@ defmodule Managoat.Runtimes.ClaudeTest do
   @moduledoc """
   MCP servers are provisioned into the sandbox (project `.mcp.json` + an
   auto-approve setting) because the ACP session-scoped channel is broken
-  upstream (#837). This pins the provisioning shape.
+  upstream (#837), and every sandbox gets the settings that keep thinking
+  visible. This pins the provisioning shape, and the env `model_env/1` names.
   """
   use ExUnit.Case, async: true
   use Mimic
@@ -18,15 +19,25 @@ defmodule Managoat.Runtimes.ClaudeTest do
     {:ok, handle: handle}
   end
 
-  test "no MCP servers writes nothing", %{handle: handle} do
-    Mimic.reject(&Sandbox.write_file/3)
-    Mimic.reject(&Sandbox.write_file/4)
-    assert Claude.write_config(handle, %{mcp_servers: %{}}) == :ok
-    assert Claude.write_config(handle, %{mcp_servers: nil}) == :ok
-    assert Claude.write_config(handle, nil) == :ok
+  test "without MCP servers only the settings are written, thinking summaries on", %{
+    handle: handle
+  } do
+    test = self()
+
+    Mimic.stub(Managoat.Sandbox, :write_file, fn _h, path, body ->
+      send(test, {:wrote, path, body})
+      :ok
+    end)
+
+    for agent <- [%{mcp_servers: %{}}, %{mcp_servers: nil}, nil, %{}] do
+      assert Claude.write_config(handle, agent) == :ok
+      assert_receive {:wrote, "/home/sprite/.claude/settings.json", settings}
+      assert Jason.decode!(settings) == %{"showThinkingSummaries" => true}
+      refute_received {:wrote, "/home/sprite/.mcp.json", _}
+    end
   end
 
-  test "MCP servers are written as project .mcp.json plus an auto-approve setting", %{
+  test "MCP servers are written as project .mcp.json plus the settings, auto-approving them", %{
     handle: handle
   } do
     test = self()
@@ -49,7 +60,11 @@ defmodule Managoat.Runtimes.ClaudeTest do
     assert %{"mcpServers" => %{"fs" => %{"command" => "npx"}}} = Jason.decode!(mcp_json)
 
     assert_receive {:wrote, "/home/sprite/.claude/settings.json", settings}
-    assert %{"enableAllProjectMcpServers" => true} = Jason.decode!(settings)
+
+    assert Jason.decode!(settings) == %{
+             "enableAllProjectMcpServers" => true,
+             "showThinkingSummaries" => true
+           }
   end
 
   test "a transient write error is retried, then the config lands", %{handle: handle} do
@@ -130,45 +145,17 @@ defmodule Managoat.Runtimes.ClaudeTest do
     end
   end
 
-  describe "prepare_sandbox/3 (the model-list warm-up)" do
-    test "warms on an API key and reports nothing when the cache lands", %{handle: handle} do
-      test = self()
-
-      Mimic.expect(Sandbox, :exec, fn ^handle, "bash", ["-lc", script], opts ->
-        send(test, {:exec, script, opts})
-        {:ok, "warm\n", 0}
-      end)
-
-      env = [{"ANTHROPIC_API_KEY", "sk-ant"}]
-      assert Claude.prepare_sandbox(handle, nil, env) == :ok
-      assert_received {:exec, script, opts}
-      assert script =~ "additionalModelOptionsCache"
-      assert opts[:env] == env
+  describe "model_env/1 (the opus alias)" do
+    test "points the opus alias at Opus 5 for a turn that asks for it" do
+      pair = [{"ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5"}]
+      assert Claude.model_env("claude-opus-5") == pair
+      assert Claude.model_env("anthropic/claude-opus-5") == pair
     end
 
-    test "is skipped on an OAuth token, which never warms", %{handle: handle} do
-      Mimic.reject(&Sandbox.exec/4)
-
-      assert Claude.prepare_sandbox(handle, nil, [{"CLAUDE_CODE_OAUTH_TOKEN", "oauth"}]) == :ok
-
-      assert Claude.prepare_sandbox(handle, nil, [
-               {"CLAUDE_CODE_OAUTH_TOKEN", "oauth"},
-               {"ANTHROPIC_API_KEY", "sk-ant"}
-             ]) == :ok
-    end
-
-    test "is skipped with no credential", %{handle: handle} do
-      Mimic.reject(&Sandbox.exec/4)
-
-      assert Claude.prepare_sandbox(handle, nil, []) == :ok
-      assert Claude.prepare_sandbox(handle, nil, [{"ANTHROPIC_API_KEY", ""}]) == :ok
-    end
-
-    test "a sandbox that cannot run the script is an error", %{handle: handle} do
-      Mimic.expect(Sandbox, :exec, fn _h, "bash", _args, _opts -> {:error, :gone} end)
-
-      assert Claude.prepare_sandbox(handle, nil, [{"ANTHROPIC_API_KEY", "sk-ant"}]) ==
-               {:error, {:claude_model_list_warmup, :gone}}
+    test "needs nothing for any other model, or none" do
+      for model <- ["claude-opus-5-5", "opus", "claude-sonnet-5", "claude-fable-5-1", nil] do
+        assert Claude.model_env(model) == [], "#{inspect(model)}"
+      end
     end
   end
 end

@@ -12,8 +12,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   use ExUnit.Case, async: true
   use Mimic
 
-  import ExUnit.CaptureLog
-
   alias Managoat.Runtimes.{ACP, Claude, Codex, Gemini, OpenCode}
   alias Managoat.Sandbox
 
@@ -111,73 +109,22 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   end
 
   describe "Claude" do
-    test "prepare_sandbox/3 warms the CLI's model list through the pinned adapter" do
-      test = self()
-
-      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
-        send(test, {:exec, script, opts})
-        {:ok, "warm\n", 0}
-      end)
-
-      env = [{"ANTHROPIC_API_KEY", "sk-1"}]
-      assert :ok = Claude.prepare_sandbox(@handle, nil, env)
-
-      assert_receive {:exec, script, opts}
-      assert opts[:env] == env
-      # The adapter the turn will use, from where ACP.install/3 put it, in
-      # the directory the turn will run in.
-      assert script =~ "timeout 45 /home/sprite/.local/bin/claude-agent-acp"
-      assert script =~ "cd /home/sprite\n"
-      assert script =~ ~s("method":"initialize")
-      assert script =~ ~s("method":"session/new")
-      # The cache key the CLI writes, in the file it writes it to, and the
-      # short-circuit for a sandbox that is already warm.
-      assert script =~ ~s(cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json")
-      assert script =~ "additionalModelOptionsCache"
-      assert script =~ "echo warm\n  exit 0"
-    end
-
-    test "the OAuth credential is enough to warm with" do
-      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "warm", 0} end)
-      assert :ok = Claude.prepare_sandbox(@handle, nil, [{"CLAUDE_CODE_OAUTH_TOKEN", "t"}])
-    end
-
-    test "a cache that stays cold is logged and provisioning goes on" do
-      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "cold\n", 0} end)
-
-      log =
-        capture_log(fn ->
-          assert :ok = Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", "sk"}])
-        end)
-
-      assert log =~ "did not warm"
-    end
-
-    test "a script that dies is logged with its exit, and provisioning goes on" do
-      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "bash: timeout: not found", 127} end)
-
-      log =
-        capture_log(fn ->
-          assert :ok = Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", "sk"}])
-        end)
-
-      assert log =~ "exited 127"
-      assert log =~ "timeout: not found"
-    end
-
-    test "a sandbox that cannot run the script is a tagged error" do
-      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:error, :unavailable} end)
-
-      assert {:error, {:claude_model_list_warmup, :unavailable}} =
-               Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", "sk"}])
-    end
-
-    test "no credential in the env runs nothing: there is nothing to fetch with" do
+    test "has no sandbox bootstrap: the pinned CLI lists its models itself" do
       reject(&Sandbox.exec/4)
 
-      assert :ok = Claude.prepare_sandbox(@handle, nil, [])
-      assert :ok = Claude.prepare_sandbox(@handle, nil, [{"ANTHROPIC_API_KEY", ""}])
-      assert :ok = Claude.prepare_sandbox(@handle, nil, [{"HOME", "/home/sprite"}])
+      refute Managoat.Runtimes.implements?(Claude, :prepare_sandbox, 3)
+
+      assert :ok =
+               Managoat.Runtimes.prepare_sandbox(Claude, @handle, nil, [
+                 {"ANTHROPIC_API_KEY", "sk"}
+               ])
+    end
+
+    test "model_env/2 dispatches to claude, and is empty for a runtime without it" do
+      assert Managoat.Runtimes.model_env(Claude, "claude-opus-5") ==
+               [{"ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5"}]
+
+      assert Managoat.Runtimes.model_env(Codex, "gpt-5") == []
     end
   end
 
@@ -185,7 +132,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     test "an agent without runtime-specific config writes nothing" do
       reject(&Sandbox.write_file/3)
 
-      assert :ok = Managoat.Runtimes.Claude.write_config(@handle, %{})
       assert :ok = Managoat.Runtimes.Instructions.write(@handle, "claude", %{})
     end
   end
@@ -329,17 +275,17 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
         send(test, {:exec, script, opts})
-        {:ok, "0.75.1", 0}
+        {:ok, "0.81.2", 0}
       end)
 
       assert :ok = ACP.install(@handle, "claude", [{"X", "1"}])
 
       assert_receive {:exec, script, opts}
       assert opts[:env] == [{"X", "1"}]
-      assert script =~ "want=0.75.1"
+      assert script =~ "want=0.81.2"
 
       assert script =~
-               "npm install -g --no-progress --silent @agentclientprotocol/claude-agent-acp@0.75.1"
+               "npm install -g --no-progress --silent @agentclientprotocol/claude-agent-acp@0.81.2"
 
       assert script =~ "/home/sprite/.local/bin/claude-agent-acp"
     end

@@ -18,10 +18,11 @@ defmodule Managoat.Runtimes.Claude do
   there correctly (pinned by `peer_mcp_test.exs`). But `claude-agent-acp`
   0.66–0.70 never launched stdio servers passed that way — reproduced
   standalone, upstream bug [agentclientprotocol/claude-agent-acp#883]. On
-  the 0.75.1 pin (2026-09-07) a stdio server passed only over `session/new`
-  *does* reach the model, and a server named on both paths is registered
-  once; `http`/`sse` entries over the session-scoped path are not yet
-  measured, which is why this provisioning stays until they are.
+  the 0.75.1 pin (2026-09-07), and again on 0.81.2 (2026-09-25), a stdio
+  server passed only over `session/new` *does* reach the model, and a server
+  named on both paths is registered once; `http`/`sse` entries over the
+  session-scoped path are not yet measured, which is why this provisioning
+  stays until they are.
 
   So `write_config/2` provisions the servers into the sandbox instead, as a
   project `.mcp.json` plus `enableAllProjectMcpServers` in
@@ -38,46 +39,38 @@ defmodule Managoat.Runtimes.Claude do
   re-probe procedure and is guarded by a test that fails if this function
   disappears without the entry.
 
-  ## The model list is warmed at provisioning
+  ## Models: the pinned CLI lists them itself, with one alias to pin
 
   The adapter advertises whatever the Claude Code binary bundled in its SDK
-  reports, and that binary has two model lists. The built-in one (`default`,
-  `opus`, `sonnet`, `haiku`) is there on every start. The other — the org's
-  "additional models", which is where Fable is — comes from a fetch the CLI
-  makes *after* a session has started and caches in `~/.claude.json`
-  (`additionalModelOptionsCache`) for the *next* launch. So the first session
-  in a fresh sandbox never lists Fable, and `session/set_config_option` with
-  `claude-fable-5-1` is refused there on every adapter version; the second
-  session in the same sandbox lists it. Measured 2026-09-07 with a fresh
-  `CLAUDE_CONFIG_DIR` per run, on adapters 0.66.0 and 0.75.1.
+  reports, and `session/set_config_option` accepts only those rows (a full
+  model id resolves onto the alias row that serves it). On the 0.81.2 pin
+  (CLI 2.1.280) the org's additional models, Fable among them, are listed
+  on a cold `session/new`, on an API key and on a Claude.ai OAuth token
+  alike. Measured 2026-09-25 with a fresh `CLAUDE_CONFIG_DIR` per run and a
+  real turn on `claude-fable-5-1`. Before it (0.75.1, CLI 2.1.257) they
+  arrived only after a first session had cached them, which is why this
+  module used to warm that cache at provisioning.
 
-  `prepare_sandbox/3` therefore opens one throwaway ACP session through the
-  pinned adapter (`initialize` + `session/new`, no prompt, no tokens) and
-  waits for the cache to land — under three seconds measured — before the
-  host's first real session. Best-effort: a cache that stays cold is logged
-  and provisioning goes on, since only the additional models are affected.
-  Registered as `:claude_model_list_warmup` in `Managoat.Runtimes.Quirks`.
+  The same CLI moved its `opus` alias to Opus 5.5, so `claude-opus-5` is
+  refused unless the alias is pointed back at it with
+  `ANTHROPIC_DEFAULT_OPUS_MODEL`. `model_env/1` returns that pair for a turn
+  that asks for Opus 5. It is per process: one adapter serves one Opus.
+  Registered as `:claude_opus_alias` in `Managoat.Runtimes.Quirks`.
 
-  Only an `ANTHROPIC_API_KEY` is warmed. On a `CLAUDE_CODE_OAUTH_TOKEN` (a
-  Claude.ai subscription) the fetch never populates the cache, so the
-  warm-up could only poll out its 30s bound, and it did so on every
-  provision and every wake of the same sandbox, since a cold cache is never
-  skipped (managoat/fountain, measured 2026-09-25). The warm-up is not run
-  there; that path's first session lists the built-in models only, as it did
-  with the warm-up.
+  ## Thinking is shown only when asked for
+
+  The 0.81.2 CLI defaults `showThinkingSummaries` to false, and the API then
+  returns thinking with its display omitted: the adapter has no text to send,
+  so no `agent_thought_chunk` reaches the host. `write_config/2` therefore
+  always writes `showThinkingSummaries: true` into `~/.claude/settings.json`.
+  Registered as `:claude_thinking_summaries`.
   """
 
   @behaviour Managoat.Runtimes
 
-  require Logger
-
   alias Managoat.Runtimes.Layout
 
   @runtime "claude"
-
-  # Where `Managoat.Runtimes.ACP.install/3` symlinks the adapter, and where
-  # the CLI keeps its per-user state (`CLAUDE_CONFIG_DIR` overrides HOME).
-  @adapter_bin "/home/sprite/.local/bin/claude-agent-acp"
 
   # The project-scope config sits at the repo root the agent runs in, not
   # under the config directory — that is what makes it *project* scope.
@@ -109,151 +102,64 @@ defmodule Managoat.Runtimes.Claude do
   end
 
   @doc """
-  Provision the agent's MCP servers into the sandbox (see the moduledoc for
-  why this, not the ACP session-scoped channel). No servers → nothing written.
+  Write the CLI's settings, and the agent's MCP servers when it has any (see
+  the moduledoc for why this, not the ACP session-scoped channel).
+
+  `~/.claude/settings.json` is written on every call, agent or not, because
+  it carries `showThinkingSummaries` (see the moduledoc). A host that calls
+  this on every provision and wake keeps an existing sandbox current.
   """
   @impl true
-  def write_config(_handle, nil), do: :ok
-  def write_config(_handle, %{mcp_servers: m}) when m == %{} or is_nil(m), do: :ok
-
-  def write_config(handle, %{mcp_servers: mcp_servers}) when is_map(mcp_servers) do
-    # Project-scope config the CLI reads via settingSources; `mcp_servers` is
-    # already the Claude-Code shape (`%{name => %{"command"/"args"/"env"...}}`)
-    # with `${VAR}` refs resolved by the caller.
-    #
+  def write_config(handle, agent) do
     # Both writes are idempotent, so a transport blip on a sprite that has
     # only just booted is retried rather than failing the provision: the
     # first filesystem call into a fresh sprite timed out once in prod and
     # took the whole conversation with it.
-    mcp_json = Jason.encode!(%{"mcpServers" => mcp_servers}, pretty: true)
+    case mcp_servers(agent) do
+      servers when servers == %{} ->
+        write_retrying(handle, @settings, settings(false))
 
-    # Pre-approve the project's servers so the first turn does not stall on
-    # an approval the sandbox has no human to answer. (Fountain's ACP peer
-    # also auto-allows `session/request_permission`, but that only fires
-    # mid-turn; pre-approval keeps the server connected from session start.)
-    settings = Jason.encode!(%{"enableAllProjectMcpServers" => true}, pretty: true)
+      servers ->
+        # Project-scope config the CLI reads via settingSources; `servers` is
+        # already the Claude-Code shape (`%{name => %{"command"/"args"/"env"...}}`)
+        # with `${VAR}` refs resolved by the caller.
+        mcp_json = Jason.encode!(%{"mcpServers" => servers}, pretty: true)
 
-    with :ok <- write_retrying(handle, @mcp_config, mcp_json) do
-      write_retrying(handle, @settings, settings)
+        with :ok <- write_retrying(handle, @mcp_config, mcp_json) do
+          write_retrying(handle, @settings, settings(true))
+        end
     end
   end
 
-  def write_config(_handle, _agent), do: :ok
+  defp mcp_servers(%{mcp_servers: servers}) when is_map(servers), do: servers
+  defp mcp_servers(_agent), do: %{}
+
+  # With MCP servers, pre-approve the project's servers so the first turn does
+  # not stall on an approval the sandbox has no human to answer. (Fountain's
+  # ACP peer also auto-allows `session/request_permission`, but that only
+  # fires mid-turn; pre-approval keeps the server connected from session start.)
+  defp settings(false), do: Jason.encode!(%{"showThinkingSummaries" => true}, pretty: true)
+
+  defp settings(true) do
+    Jason.encode!(%{"showThinkingSummaries" => true, "enableAllProjectMcpServers" => true},
+      pretty: true
+    )
+  end
 
   @doc """
-  Warm the CLI's additional-models cache before the host's first session (see
-  the moduledoc). Runs the pinned adapter once with no prompt, so it needs the
-  credential the turn will use, and only an `ANTHROPIC_API_KEY` warms: with no
-  key in `sprite_env`, or with a `CLAUDE_CODE_OAUTH_TOKEN` (which never
-  populates the cache), nothing is run.
+  The env a turn on `model` needs in the adapter's process, beyond
+  `default_env/2` (see the moduledoc). `claude-opus-5` points the CLI's `opus`
+  alias back at Opus 5; every other model needs nothing.
 
-  `:ok` whether the cache warmed or not — a cold cache costs the additional
-  models only, and is logged. A sandbox that cannot run the script at all is
-  `{:error, {:claude_model_list_warmup, reason}}`, like the siblings.
+  Accepts the id bare or with its `anthropic/` provider prefix. The pairs
+  belong to the spawn, not the sandbox: an adapter already running with them
+  serves only that Opus, so a host that reuses a process across turns has to
+  respawn it when this answer changes.
   """
   @impl true
-  def prepare_sandbox(handle, _agent, sprite_env) do
-    if warmable?(sprite_env) do
-      case Managoat.Sandbox.exec(handle, "bash", ["-lc", warmup_script()],
-             env: sprite_env,
-             timeout: 90_000
-           ) do
-        {:ok, out, 0} ->
-          unless warmed?(out) do
-            Logger.warning(
-              "claude model list did not warm before the first session; " <>
-                "the org's additional models (Fable) will not be selectable in it"
-            )
-          end
-
-          :ok
-
-        {:ok, out, code} ->
-          Logger.warning(
-            "claude model list warm-up exited #{code}: #{String.slice(to_string(out), 0, 500)}"
-          )
-
-          :ok
-
-        {:error, reason} ->
-          {:error, {:claude_model_list_warmup, reason}}
-      end
-    else
-      :ok
-    end
-  end
-
-  # `default_env/2` exports one credential or the other, never both, and
-  # `fall_back_to_api_key/2` removes the token. An env carrying both is not
-  # one this module builds, so it takes the path that costs nothing.
-  defp warmable?(sprite_env) do
-    set?(sprite_env, "ANTHROPIC_API_KEY") and not set?(sprite_env, "CLAUDE_CODE_OAUTH_TOKEN")
-  end
-
-  defp set?(sprite_env, key) do
-    Enum.any?(sprite_env, fn
-      {^key, v} -> is_binary(v) and v != ""
-      _ -> false
-    end)
-  end
-
-  defp warmed?(out), do: out |> to_string() |> String.trim() |> String.ends_with?("warm")
-
-  # One ACP session with no prompt, fed from the same block that polls for
-  # the cache: closing stdin is what ends the adapter, and `timeout` bounds
-  # it if a version ever ignores EOF. The 30s poll bound is generous against
-  # the ~3s measured, and is also the whole cost of a credential that never
-  # warms (the poll runs out), which is why the OAuth token is not run
-  # through it; the exec timeout sits above both. Idempotent — a warm sandbox (a shared one on its second
-  # conversation) exits before running anything.
-  defp warmup_script do
-    cwd = Layout.cwd(@runtime)
-
-    init =
-      Jason.encode!(%{
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: %{
-          protocolVersion: 1,
-          clientCapabilities: %{fs: %{readTextFile: false, writeTextFile: false}}
-        }
-      })
-
-    new =
-      Jason.encode!(%{
-        jsonrpc: "2.0",
-        id: 2,
-        method: "session/new",
-        params: %{cwd: cwd, mcpServers: []}
-      })
-
-    """
-    set -u
-    cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
-    if grep -q '"additionalModelOptionsCache"' "$cfg" 2>/dev/null; then
-      echo warm
-      exit 0
-    fi
-    mkdir -p #{cwd}
-    cd #{cwd}
-    {
-      printf '%s\\n' '#{init}' '#{new}'
-      i=0
-      while [ "$i" -lt 60 ]; do
-        if grep -q '"additionalModelOptionsCache"' "$cfg" 2>/dev/null; then break; fi
-        sleep 0.5
-        i=$((i + 1))
-      done
-    } 2>/dev/null | timeout 45 #{@adapter_bin} >/dev/null 2>&1
-    if grep -q '"additionalModelOptionsCache"' "$cfg" 2>/dev/null; then
-      echo warm
-    else
-      echo cold
-    fi
-    exit 0
-    """
-  end
+  def model_env("anthropic/" <> model), do: model_env(model)
+  def model_env("claude-opus-5"), do: [{"ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5"}]
+  def model_env(_model), do: []
 
   defp write_retrying(handle, path, body) do
     case Managoat.Sandbox.Retry.with_backoff(

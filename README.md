@@ -25,7 +25,7 @@ agent = %{
 }
 
 # 1. The credential env for this runtime, from the credentials the host holds.
-#    Three of the callbacks are optional, so they are called through the
+#    Four of the callbacks are optional, so they are called through the
 #    dispatchers rather than on the module — see "Calling the optional
 #    callbacks" below, and never guard them with function_exported?/3.
 env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
@@ -40,8 +40,10 @@ env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
 :ok = ACP.install(handle, "claude", env)
 :ok = Runtimes.prepare_sandbox(runtime, handle, agent, env)
 
-# 4. Spawn it and hand the process to Managoat.ACP.Peer.
+# 4. Spawn it, with any env the turn's model needs, and hand the process to
+#    Managoat.ACP.Peer.
 {bin, args} = ACP.command("claude")
+env = env ++ Runtimes.model_env(runtime, "claude-opus-5")
 {:ok, command} = Managoat.Sandbox.spawn(handle, bin, args, env: env, dir: ACP.cwd("claude"), stdin: true)
 
 {:ok, peer} =
@@ -62,7 +64,7 @@ env = Runtimes.default_env(runtime, agent, %{anthropic_api_key: key})
 
 | Module | Role |
 |---|---|
-| `Managoat.Runtimes` | The behaviour (`default_env/2`, `write_config/2`, `prepare_sandbox/3`, `skills_root/0`, `skills_sh_agent/0`, and an optional `build_command/5` for a runtime that cannot speak ACP), `for_runtime/1`, the dispatcher from a runtime name to its module, and `default_env/3`, `write_config/3`, `prepare_sandbox/4`, `implements?/3`, the safe way to call the optional ones. The agent is read as a plain map, `t:Managoat.Runtimes.agent/0`, so the host's own record satisfies it. |
+| `Managoat.Runtimes` | The behaviour (`default_env/2`, `write_config/2`, `prepare_sandbox/3`, `model_env/1`, `skills_root/0`, `skills_sh_agent/0`, and an optional `build_command/5` for a runtime that cannot speak ACP), `for_runtime/1`, the dispatcher from a runtime name to its module, and `default_env/3`, `write_config/3`, `prepare_sandbox/4`, `model_env/2`, `implements?/3`, the safe way to call the optional ones. The agent is read as a plain map, `t:Managoat.Runtimes.agent/0`, so the host's own record satisfies it. |
 | `Managoat.Runtimes.ACP` | The adapter table: which package and **pinned** version reach ACP for each runtime (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`; gemini and opencode are native), `install/3`, `bootstrap_command/3`, `command/1`, `cwd/1`, `concurrency/1` (how many turns one sandbox takes for the runtime), `asks_permission?/1` (measured, not assumed), `mcp_servers/1` in the shape `session/new` takes, and `initialize_params/1`. |
 | `Managoat.Runtimes.{Claude, Codex, Gemini, OpenCode}` | One module per runtime: credentials in, env and files out. Two credential shapes, not four: an env var, or a login exec that consumes the key on stdin (codex). |
 | `Managoat.Runtimes.Layout` | The one table every path derives from: `<home>/<config_dir>/<leaf>` per runtime. gemini and opencode run with `HOME=/tmp`, and deriving the HOME export and the file paths from the same row is what keeps a system prompt from being written where the CLI never looks. |
@@ -123,15 +125,16 @@ tenant. The host:
 - applies any network policy to the sandbox, and calls `ACP.install/3` and
   `prepare_sandbox/3` *after* it, with the npm registry allowed if the policy
   restricts egress;
+- adds `model_env/2` for the turn's model to the adapter's spawn env, and
+  respawns a reused adapter when that answer changes between turns;
 - calls `Gemini.SessionStore.consolidate/2` at the end of every gemini turn.
 
 ## Calling the optional callbacks
 
-Four of the callbacks are optional and the matrix is genuinely sparse — every
+Five of the callbacks are optional and the matrix is genuinely sparse — every
 runtime is missing at least one — so a host has to guard the call.
-(claude's `prepare_sandbox/3` is the newest row: it warms the CLI's model
-list, without which a fresh sandbox's first session cannot select Fable.) The obvious
-guard is wrong:
+(claude's `model_env/1` is the newest row: it points the CLI's `opus` alias
+at Opus 5 for a turn that asks for it.) The obvious guard is wrong:
 
 ```elixir
 # WRONG: silently no-ops in an escript or a release
@@ -153,6 +156,7 @@ first and falls back to the documented no-op:
 env  = Managoat.Runtimes.default_env(mod, agent, credentials)      # or []
 :ok  = Managoat.Runtimes.write_config(mod, handle, agent)          # or :ok
 :ok  = Managoat.Runtimes.prepare_sandbox(mod, handle, agent, env)  # or :ok
+env  = env ++ Managoat.Runtimes.model_env(mod, model)             # or []
 ```
 
 `build_command/5` has no default to fall back to — there is no argv to
@@ -164,7 +168,8 @@ unimplemented runtime means on your legacy spawn path. `skills_root/0` and
 |---|---|---|---|---|
 | `default_env/2` | ✓ | ✓ | ✓ | ✓ |
 | `write_config/2` | ✓ | — | ✓ | — |
-| `prepare_sandbox/3` | ✓ | ✓ | ✓ | ✓ |
+| `prepare_sandbox/3` | — | ✓ | ✓ | ✓ |
+| `model_env/1` | ✓ | — | — | — |
 | `build_command/5` | — | — | — | — |
 
 ## The adapter is pinned, and that is load-bearing
