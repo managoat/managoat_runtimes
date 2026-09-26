@@ -94,11 +94,18 @@ defmodule Managoat.Runtimes.Claude do
     oauth = Map.get(inference_credentials, :claude_code_oauth_token)
     api_key = Map.get(inference_credentials, :anthropic_api_key)
 
-    cond do
-      is_binary(oauth) and oauth != "" -> [{"CLAUDE_CODE_OAUTH_TOKEN", oauth}]
-      is_binary(api_key) and api_key != "" -> [{"ANTHROPIC_API_KEY", api_key}]
-      true -> []
-    end
+    credential =
+      cond do
+        is_binary(oauth) and oauth != "" -> [{"CLAUDE_CODE_OAUTH_TOKEN", oauth}]
+        is_binary(api_key) and api_key != "" -> [{"ANTHROPIC_API_KEY", api_key}]
+        true -> []
+      end
+
+    # A fresh sandbox's first session otherwise waits on the CLI's
+    # non-essential traffic (see `:claude_nonessential_traffic` in
+    # `Managoat.Runtimes.Quirks`). It also stops the auto-updater, which the
+    # pinned adapter wants off anyway.
+    credential ++ [{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"}]
   end
 
   @doc """

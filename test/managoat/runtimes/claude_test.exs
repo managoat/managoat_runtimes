@@ -101,17 +101,24 @@ defmodule Managoat.Runtimes.ClaudeTest do
           anthropic_api_key: "api-key"
         })
 
-      assert env == [{"CLAUDE_CODE_OAUTH_TOKEN", "oauth-token"}]
+      assert env == [
+               {"CLAUDE_CODE_OAUTH_TOKEN", "oauth-token"},
+               {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"}
+             ]
     end
 
     test "falls back to the api key when there is no oauth token" do
       env = Claude.default_env(nil, %{anthropic_api_key: "api-key"})
 
-      assert env == [{"ANTHROPIC_API_KEY", "api-key"}]
+      assert env == [
+               {"ANTHROPIC_API_KEY", "api-key"},
+               {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"}
+             ]
     end
 
-    test "is empty when neither credential is on file" do
-      assert Claude.default_env(nil, %{}) == []
+    test "carries only the traffic flag when neither credential is on file" do
+      # The first-start delay it avoids is the CLI's, whatever the credential.
+      assert Claude.default_env(nil, %{}) == [{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"}]
     end
   end
 

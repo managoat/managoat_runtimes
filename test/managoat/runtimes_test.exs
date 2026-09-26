@@ -146,7 +146,7 @@ defmodule Managoat.RuntimesTest do
   describe "dispatching to a runtime that implements the callback" do
     test "returns what the callback returns" do
       assert Runtimes.default_env(Managoat.Runtimes.Claude, %{}, %{anthropic_api_key: "sk-x"}) ==
-               [{"ANTHROPIC_API_KEY", "sk-x"}]
+               [{"ANTHROPIC_API_KEY", "sk-x"}, {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"}]
 
       assert Runtimes.model_env(Managoat.Runtimes.Claude, "claude-opus-5") ==
                [{"ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5"}]

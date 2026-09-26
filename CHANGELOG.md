@@ -10,6 +10,17 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-26
+
+- `Claude.default_env/2` adds `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. On a
+  fresh sandbox the first session's CLI start (the SDK's `sdk-initialize`)
+  took ~1.9 s against ~0.4 s for every later one; with the flag the first took
+  0.33–0.76 s on fresh sprites. It also turns off the CLI's auto-updater
+  (which the pinned adapter wants off), its telemetry and error reporting to
+  Anthropic, and `/bug`. The model list, Fable and the Opus alias are
+  unchanged on both credential types. Registered as
+  `:claude_nonessential_traffic` in `Managoat.Runtimes.Quirks`.
+
 ## [0.5.2] - 2026-09-26
 
 - The manifest install streams each tarball into `tar` through a FIFO while
