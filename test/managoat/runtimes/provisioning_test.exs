@@ -369,6 +369,18 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert File.exists?(Path.join(dir, "node_modules/native-here/claude"))
       refute File.exists?(Path.join(dir, "node_modules/native-elsewhere"))
       refute File.exists?(Path.join(dir, ".dl"))
+      refute File.exists?(Path.join(dir, ".timing"))
+
+      timing = File.read!(Path.join(dir, ".install-timing"))
+      assert timing =~ ~r/^method manifest$/m
+      assert timing =~ ~r/^start \d+\.\d{3}$/m
+      assert timing =~ ~r/^installed \d+\.\d{3}$/m
+      # Milliseconds per package: a date format that ran seconds and
+      # nanoseconds together once reported 19-digit "durations".
+      for [ms] <- Regex.scan(~r/^package \S+ (\d+)$/m, timing, capture: :all_but_first),
+          do: assert(String.to_integer(ms) < 60_000)
+
+      assert timing =~ ~r/^package node_modules\/\S+ \d+$/m
 
       entry = Path.join(dir, "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js")
       assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) == entry
@@ -398,6 +410,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert out =~ "manifest install failed"
       assert calls =~ "npm install --prefix"
       assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
+      assert File.read!(Path.join(dir, ".install-timing")) =~ ~r/^method npm$/m
     end
 
     @tag :tmp_dir

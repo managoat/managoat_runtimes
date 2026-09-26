@@ -10,6 +10,20 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-26
+
+- The manifest install streams each tarball into `tar` through a FIFO while
+  hashing the same bytes, so a package unpacks as it downloads and no tarball
+  is written to disk. The claude binary (223 MB unpacked from 105 MB) used to
+  wait for its tarball to land before unpacking, and a sprite's disk absorbs
+  writes slowly (~130 MB/s with fsync); this writes ~105 MB less per install.
+  The sha512 is checked after unpacking, into the staging directory: a
+  mismatch fails the install (falling back to npm), which never gets its
+  `.installed` marker or the PATH link, so nothing unverified runs.
+- An install records `.install-timing` in its directory: the method (manifest
+  or npm), when it started, fetched and finished, and its five slowest
+  packages in milliseconds. The next slow install explains itself.
+
 ## [0.5.1] - 2026-09-26
 
 - The claude ACP adapter installs in about 2–3 s instead of ~12 s, and the
