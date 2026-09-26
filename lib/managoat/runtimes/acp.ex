@@ -554,6 +554,7 @@ defmodule Managoat.Runtimes.ACP do
     link=/home/sprite/.local/bin/#{bin}
     target="$dir/node_modules/#{package}/#{entry}"
     installed() { [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ]; }
+    now() { date +%s.%3N; }
     #{manifest_install_fn()}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
@@ -563,15 +564,26 @@ defmodule Managoat.Runtimes.ACP do
       exec 9>"$dir.lock"
       flock 9
       if ! installed; then
+        t_start=$(now)
         rm -rf "$dir.tmp"
         mkdir -p "$dir.tmp"
+        how=manifest
         if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
           if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
+          how=npm
           rm -rf "$dir.tmp"
           mkdir -p "$dir.tmp"
           npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund #{package}@#{version}
         fi
+        t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        # When the install happened, and where its time went, for the next
+        # slow one to explain itself: the phases, then the slowest packages.
+        {
+          printf 'method %s\nstart %s\nfetched %s\ninstalled %s\n' "$how" "$t_start" "$t_fetched" "$(now)"
+          sort -k2 -rn "$dir.tmp/.timing" 2>/dev/null | head -5 | sed 's/^/package /'
+        } >"$dir.tmp/.install-timing"
+        rm -f "$dir.tmp/.timing"
         printf '%s' "$want" >"$dir.tmp/.installed"
         rm -rf "$dir"
         mv "$dir.tmp" "$dir"
@@ -583,14 +595,21 @@ defmodule Managoat.Runtimes.ACP do
     """
   end
 
-  # One worker per package, 16 at a time: download, check the sha512 against
-  # the manifest's integrity, unpack. `--strip-components=1` because a
-  # tarball's top directory is named by its author, usually but not always
-  # `package/`.
+  # One worker per package, 16 at a time. Each streams its tarball into tar
+  # through a FIFO while hashing the same bytes, so a package unpacks as it
+  # downloads and no tarball is written to disk: the 223 MB claude binary used
+  # to wait for its 105 MB tarball to land and then unpack (~1.4 s, most of it
+  # gzip), and a sprite's disk absorbs writes slowly (managoat/fountain,
+  # measured 2026-09-26). The sha512 is therefore checked after unpacking, into
+  # the install's staging directory: a mismatch fails the install, which never
+  # gets its `.installed` marker or the PATH link, so nothing unverified runs.
+  # `--strip-components=1` because a tarball's top directory is named by its
+  # author, usually but not always `package/`. Each worker records its
+  # package's time in `.timing`.
   defp manifest_install_fn do
     ~S"""
     manifest_install() {
-      command -v curl >/dev/null && command -v openssl >/dev/null || return 1
+      command -v curl >/dev/null && command -v openssl >/dev/null && command -v mkfifo >/dev/null || return 1
       local arch libc
       arch=$(uname -m)
       case "$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac
@@ -598,15 +617,21 @@ defmodule Managoat.Runtimes.ACP do
       if ldd --version 2>&1 | grep -qi musl; then libc=musl; fi
       mkdir -p "$2/.dl"
       ACP_DEST=$2 ACP_ARCH=$arch ACP_LIBC=$libc xargs -d '\n' -n1 -P16 bash -c '
+        set -o pipefail
         IFS=$'"'"'\t'"'"' read -r path url sri os cpu libc <<<"$1"
         case ",$os," in ,-,|*,linux,*) ;; *) exit 0 ;; esac
         case ",$cpu," in ,-,|*,$ACP_ARCH,*) ;; *) exit 0 ;; esac
         case ",$libc," in ,-,|*,$ACP_LIBC,*) ;; *) exit 0 ;; esac
-        f="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__").tgz"
-        curl -fsS -o "$f" "$url" || exit 1
-        [ "sha512-$(openssl dgst -sha512 -binary "$f" | base64 -w0)" = "$sri" ] || { echo "integrity mismatch: $path" >&2; exit 1; }
+        s=$(date +%s%N)
+        fifo="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
+        mkfifo "$fifo"
         mkdir -p "$ACP_DEST/$path"
-        tar xzf "$f" -C "$ACP_DEST/$path" --strip-components=1
+        tar xzf - -C "$ACP_DEST/$path" --strip-components=1 <"$fifo" &
+        untar=$!
+        got=$(curl -fsS "$url" | tee "$fifo" | openssl dgst -sha512 -binary | base64 -w0) || { wait "$untar"; exit 1; }
+        wait "$untar" || exit 1
+        [ "sha512-$got" = "$sri" ] || { echo "integrity mismatch: $path" >&2; exit 1; }
+        printf "%s %s\n" "$path" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
       ' _ <"$1" || return 1
       rm -rf "$2/.dl"
     }
