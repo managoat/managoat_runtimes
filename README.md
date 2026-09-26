@@ -180,6 +180,12 @@ replay per turn. So the versions in `Managoat.Runtimes.ACP` are exact, the
 install is idempotent on that exact version (an image carrying a different
 one is corrected, not accepted), and a pin moves in a commit that says why.
 
+The pin covers the whole dependency tree for claude, not only the adapter:
+`priv/acp/claude-agent-acp@<version>.tsv` lists every package with its sha512
+integrity, and `ACP.install/3` installs from it without npm on the sandbox
+(about 2–3 s against npm's ~12 s). Regenerate it with `scripts/acp-lock.exs`
+whenever the pin moves.
+
 ## Licence
 
 Apache-2.0. Extracted from [Fountain](https://github.com/managoat/fountain)

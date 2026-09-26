@@ -270,108 +270,147 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   end
 
   describe "ACP.install/3 for an adapter runtime" do
-    test "installs the exact pinned version and symlinks it onto PATH" do
+    @claude_dir "/home/sprite/.local/share/managoat/acp/claude-agent-acp@0.81.2"
+
+    test "claude writes its manifest, then installs into a versioned directory" do
       test = self()
+
+      expect(Sandbox, :write_file, fn @handle, path, body ->
+        send(test, {:manifest, path, body})
+        :ok
+      end)
 
       expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
         send(test, {:exec, script, opts})
-        {:ok, "0.81.2", 0}
+        {:ok, "", 0}
       end)
 
       assert :ok = ACP.install(@handle, "claude", [{"X", "1"}])
 
+      assert_receive {:manifest, path, body}
+      assert path == @claude_dir <> ".tsv"
+      assert body =~ "node_modules/@agentclientprotocol/claude-agent-acp\thttps://"
+
       assert_receive {:exec, script, opts}
       assert opts[:env] == [{"X", "1"}]
       assert script =~ "want=0.81.2"
-
-      assert script =~
-               "npm install -g --no-progress --silent @agentclientprotocol/claude-agent-acp@0.81.2"
-
-      assert script =~ "/home/sprite/.local/bin/claude-agent-acp"
+      assert script =~ "dir=#{@claude_dir}"
+      assert script =~ "link=/home/sprite/.local/bin/claude-agent-acp"
+      assert script =~ "flock 9"
+      assert script =~ "npm install --prefix \"$dir.tmp\""
+      refute script =~ "npm install -g"
     end
 
-    test "codex installs its own adapter the same way" do
+    test "a manifest that cannot be written leaves the install to npm" do
+      expect(Sandbox, :write_file, fn _h, _p, _b -> {:error, :unavailable} end)
+      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "", 0} end)
+
+      assert :ok = ACP.install(@handle, "claude", [])
+    end
+
+    test "codex has no manifest and installs with npm the same way" do
+      reject(&Sandbox.write_file/3)
+
       expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
+        assert script =~ "dir=/home/sprite/.local/share/managoat/acp/codex-acp@1.10.0"
+        assert script =~ "link=/home/sprite/.local/bin/codex-acp"
         assert script =~ "@agentclientprotocol/codex-acp@1.10.0"
-        assert script =~ "bin=/home/sprite/.local/bin/codex-acp"
         {:ok, "", 0}
       end)
 
       assert :ok = ACP.install(@handle, "codex", [])
     end
 
-    test "a package-prefixed version skips npm when the pin is already installed" do
-      dir = Path.join(System.tmp_dir!(), "acp-pin-#{System.unique_integer([:positive])}")
-      File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
+    @tag :tmp_dir
+    test "an installed pin is recognised without running anything", %{tmp_dir: home} do
+      target = installed_fixture(home)
+      File.ln_s!(target, Path.join(home, ".local/bin/claude-agent-acp"))
+
+      assert {_out, 0, calls} = run_installer(home)
+      assert calls == ""
+    end
+
+    @tag :tmp_dir
+    test "a missing link is repointed without reinstalling", %{tmp_dir: home} do
+      target = installed_fixture(home)
+
+      assert {_out, 0, calls} = run_installer(home)
+      assert calls == ""
+      assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) == target
+    end
+
+    @tag :tmp_dir
+    test "the manifest installs the matching platform package, checked and unpacked", %{
+      tmp_dir: home
+    } do
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+
+      manifest = [
+        tarball_row(home, "node_modules/@agentclientprotocol/claude-agent-acp", %{
+          "dist/index.js" => "#!/usr/bin/env node\n"
+        }),
+        tarball_row(home, "node_modules/native-here", %{"claude" => "bin"},
+          os: "linux",
+          cpu: host_cpu(),
+          libc: "glibc,musl"
+        ),
+        tarball_row(home, "node_modules/native-elsewhere", %{"claude" => "bin"},
+          os: "darwin",
+          cpu: "arm64"
+        )
+      ]
+
+      File.write!(dir <> ".tsv", Enum.join(manifest, "\n") <> "\n")
+
+      assert {_out, 0, calls} = run_installer(home)
+      assert calls == ""
+      assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
+      assert File.exists?(Path.join(dir, "node_modules/native-here/claude"))
+      refute File.exists?(Path.join(dir, "node_modules/native-elsewhere"))
+      refute File.exists?(Path.join(dir, ".dl"))
+
+      entry = Path.join(dir, "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js")
+      assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) == entry
+      assert %{mode: mode} = File.stat!(entry)
+      assert Bitwise.band(mode, 0o111) != 0
+    end
+
+    @tag :tmp_dir
+    test "an integrity mismatch falls back to npm", %{tmp_dir: home} do
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+
+      row =
+        tarball_row(home, "node_modules/@agentclientprotocol/claude-agent-acp", %{
+          "dist/index.js" => "x"
+        })
+
+      [path, url, _sri | rest] = String.split(row, "\t")
 
       File.write!(
-        Path.join(dir, "codex-acp"),
-        "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.10.0'\n"
+        dir <> ".tsv",
+        Enum.join([path, url, "sha512-bm90IHRoaXM=" | rest], "\t") <> "\n"
       )
 
-      File.chmod!(Path.join(dir, "codex-acp"), 0o755)
-
-      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-        script = String.replace(script, "/home/sprite/.local/bin", dir)
-        # A forbidden npm call fails locally; no real package manager runs.
-        script = "npm() { echo unexpected-install; return 91; }\n" <> script
-        {output, code} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
-        assert code == 0
-        refute output =~ "unexpected-install"
-        {:ok, output, code}
-      end)
-
-      assert :ok = ACP.install(@handle, "codex", [])
+      assert {out, 0, calls} = run_installer(home)
+      assert out =~ "integrity mismatch"
+      assert out =~ "manifest install failed"
+      assert calls =~ "npm install --prefix"
+      assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
     end
 
-    test "a probe that crashes twice fails with the signal and never reinstalls" do
-      dir = adapter_fixture("kill -SEGV $$")
-
-      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-        {output, code} = run_install(script, dir)
-        assert code == 139
-        refute output =~ "npm-install"
-        assert output =~ "codex-acp --version died on signal 11"
-        {:ok, output, code}
-      end)
-
-      assert {:error, {:acp_adapter_install_exit, 139, _}} = ACP.install(@handle, "codex", [])
-    end
-
-    test "a probe that crashes once is probed again, not reinstalled" do
-      dir =
-        adapter_fixture("""
-        if [ ! -e "$0.crashed" ]; then : > "$0.crashed"; kill -SEGV $$; fi
-        echo '@agentclientprotocol/codex-acp 1.10.0'
-        """)
-
-      expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-        {output, code} = run_install(script, dir)
-        assert code == 0
-        refute output =~ "npm-install"
-        {:ok, output, code}
-      end)
-
-      assert :ok = ACP.install(@handle, "codex", [])
-    end
-
-    test "a stale or broken adapter is still reinstalled" do
-      for body <- ["echo '@agentclientprotocol/codex-acp 1.9.0'", "exit 1"] do
-        dir = adapter_fixture(body)
-
-        expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-          {output, code} = run_install(script, dir)
-          assert output =~ "npm-install"
-          {:ok, output, code}
-        end)
-
-        assert {:error, {:acp_adapter_install_exit, 91, _}} = ACP.install(@handle, "codex", [])
-      end
+    @tag :tmp_dir
+    test "without a manifest the pin installs with npm", %{tmp_dir: home} do
+      assert {out, 0, calls} = run_installer(home)
+      refute out =~ "manifest install failed"
+      assert calls =~ "npm install --prefix"
+      assert calls =~ "@agentclientprotocol/claude-agent-acp@0.81.2"
     end
 
     test "a failed install names the exit code and the first 500 bytes of output" do
       long = String.duplicate("e", 600)
+      stub(Sandbox, :write_file, fn _h, _p, _b -> :ok end)
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, long, 1} end)
 
       assert {:error, {:acp_adapter_install_exit, 1, out}} = ACP.install(@handle, "claude", [])
@@ -382,20 +421,79 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
   end
 
-  # An adapter at the pinned path whose `--version` runs `body`. The script runs
-  # locally with a stub npm, so no real package manager runs.
-  defp adapter_fixture(body) do
-    dir = Path.join(System.tmp_dir!(), "acp-probe-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
-    File.write!(Path.join(dir, "codex-acp"), "#!/bin/bash\n" <> body <> "\n")
-    File.chmod!(Path.join(dir, "codex-acp"), 0o755)
-    dir
+  # The claude installer, run for real under `bash -lc` with `/home/sprite`
+  # moved to `home`. The home has a ~/.bash_logout that fails, as the sprite's
+  # does outside a console: an `exit` at the installer's top level would turn
+  # success into exit 1 (the bug a fast-path `exit 0` shipped with). npm is a
+  # stub that records its call and lays out the package, so no package manager
+  # runs. Answers {output, status, npm calls}.
+  defp run_installer(home) do
+    File.mkdir_p!(Path.join(home, ".local/bin"))
+    File.write!(Path.join(home, ".bash_logout"), "false\n")
+    calls = Path.join(home, "npm-calls")
+
+    {"bash", ["-c", _wrapper, _name, script | _]} = ACP.bootstrap_command("claude", "true", [])
+    script = String.replace(script, "/home/sprite", home)
+
+    npm = ~s"""
+    npm() {
+      echo "npm $*" >>#{calls}
+      local d=$3
+      mkdir -p "$d/node_modules/@agentclientprotocol/claude-agent-acp/dist"
+      : >"$d/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+    }
+    """
+
+    {out, status} =
+      System.cmd("bash", ["-lc", npm <> script], env: [{"HOME", home}], stderr_to_stdout: true)
+
+    {out, status, if(File.exists?(calls), do: File.read!(calls), else: "")}
   end
 
-  defp run_install(script, dir) do
-    script = String.replace(script, "/home/sprite/.local/bin", dir)
-    script = "npm() { echo npm-install; return 91; }\n" <> script
-    System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+  defp versioned_dir(home),
+    do: Path.join(home, ".local/share/managoat/acp/claude-agent-acp@0.81.2")
+
+  defp installed_fixture(home) do
+    dir = versioned_dir(home)
+    entry = Path.join(dir, "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js")
+    File.mkdir_p!(Path.dirname(entry))
+    File.write!(entry, "")
+    File.write!(Path.join(dir, ".installed"), "0.81.2")
+    File.mkdir_p!(Path.join(home, ".local/bin"))
+    entry
+  end
+
+  # A package tarball on local disk, as a manifest row with a file:// URL and
+  # its real sha512 integrity.
+  defp tarball_row(home, path, files, platform \\ []) do
+    src = Path.join(home, "src-#{System.unique_integer([:positive])}")
+
+    for {name, body} <- files do
+      File.mkdir_p!(Path.dirname(Path.join([src, "package", name])))
+      File.write!(Path.join([src, "package", name]), body)
+    end
+
+    tgz = src <> ".tgz"
+    {_, 0} = System.cmd("tar", ["czf", tgz, "-C", src, "package"])
+    sri = "sha512-" <> Base.encode64(:crypto.hash(:sha512, File.read!(tgz)))
+
+    Enum.join(
+      [
+        path,
+        "file://" <> tgz,
+        sri,
+        Keyword.get(platform, :os, "-"),
+        Keyword.get(platform, :cpu, "-"),
+        Keyword.get(platform, :libc, "-")
+      ],
+      "\t"
+    )
+  end
+
+  defp host_cpu do
+    case :erlang.system_info(:system_architecture) |> to_string() do
+      "aarch64" <> _ -> "arm64"
+      _ -> "x64"
+    end
   end
 end

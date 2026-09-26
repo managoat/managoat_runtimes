@@ -157,7 +157,9 @@ defmodule Managoat.Runtimes.ACP do
       bin: "claude-agent-acp",
       args: [],
       package: "@agentclientprotocol/claude-agent-acp",
-      version: "0.81.2"
+      version: "0.81.2",
+      entry: "dist/index.js",
+      manifest: true
     },
     # Native: `gemini --acp`. Advertises `loadSession: true` and **no**
     # `sessionCapabilities`, so every turn after the first pays a full replay
@@ -191,7 +193,8 @@ defmodule Managoat.Runtimes.ACP do
       bin: "codex-acp",
       args: [],
       package: "@agentclientprotocol/codex-acp",
-      version: "1.10.0"
+      version: "1.10.0",
+      entry: "dist/index.js"
     },
     # Native: `opencode acp`. Heavier than the others — the subcommand starts a
     # local HTTP server inside the sprite and drives it through opencode's own
@@ -220,6 +223,21 @@ defmodule Managoat.Runtimes.ACP do
       concurrency: 1
     }
   }
+
+  # The manifest for each adapter pinned with `manifest: true`, read at compile
+  # time. Its name carries the version, so a pin bumped without running
+  # `scripts/acp-lock.exs` fails to compile rather than installing a stale tree.
+  @manifests (for {runtime, %{manifest: true, package: package, version: version}} <- @adapters,
+                  into: %{} do
+                path =
+                  Path.expand(
+                    "../../../priv/acp/#{package |> String.split("/") |> List.last()}@#{version}.tsv",
+                    __DIR__
+                  )
+
+                @external_resource path
+                {runtime, File.read!(path)}
+              end)
 
   @doc """
   Runtimes that may actually be switched on.
@@ -442,21 +460,36 @@ defmodule Managoat.Runtimes.ACP do
   different version is corrected rather than accepted, since "some adapter is
   installed" is precisely the state the pin exists to prevent.
 
-  ## npm's global bin is not on the sprite's PATH
+  ## Where it lands, and how an install is recognised
 
-  Verified on a live sprite (2026-08-10): `npm prefix -g` is
-  `/.sprite/languages/node/nvm/versions/node/v24.18.0`, whose `bin/` is **not**
-  in the default PATH — `command -v claude-agent-acp` after a successful global
-  install returns nothing. The spawn would then fail with `command not found`,
-  which reads like a protocol bug and is not one.
+  Each pinned version installs into its own directory,
+  `/home/sprite/.local/share/managoat/acp/<name>@<version>`, which gets an
+  `.installed` marker only once complete; `/home/sprite/.local/bin/<bin>`
+  (on the sprite's PATH) is then pointed at it by an atomic rename. So the
+  check that runs before every spawn is two file tests and no process start:
+  the old one started the adapter twice to read `--version`, ~3.6 s on a
+  fresh sprite (managoat/fountain, measured 2026-09-26). And an upgrade never
+  rewrites files under a running adapter: the new version is a new directory,
+  and only the link moves (the hazard managoat/fountain#2402 was about).
 
-  Registered as `:npm_global_bin_off_path` in `Managoat.Runtimes.Quirks`.
+  ## Without npm, from a manifest
 
-  So we symlink into `/home/sprite/.local/bin`, which *is* on PATH. This is the
-  same shape as `Managoat.Runtimes.OpenCode.prepare_sandbox/3`, which hit the
-  identical problem with bun's global bin, and the absolute path is hardcoded
-  for the same reason it is there: `~` resolves against whatever `HOME` the
-  caller happens to have.
+  An adapter with a manifest in `priv/acp/<name>@<version>.tsv` (written by
+  `scripts/acp-lock.exs` from npm's own resolution) installs without npm on
+  the sandbox: `install/3` writes the manifest to the sandbox, then every
+  package in it is downloaded in parallel, checked against its sha512
+  integrity and unpacked into place. npm spent most of a claude install's
+  ~12 s in its own CPU; the manifest install measured 3.0 s. Platform
+  packages are kept only when their os/cpu/libc match the sandbox, as npm
+  would choose them. Nothing in these trees has an install script (the
+  generator refuses one), so skipping npm skips nothing that runs. It also
+  pins the whole tree, not only the adapter: npm resolved ranges at install
+  time.
+
+  Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
+  integrity mismatch) falls back to `npm install --prefix` into the same
+  directory, as does an adapter with no manifest and the check inside
+  `bootstrap_command/3`, which cannot write the manifest first.
   """
   @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
   def install(sprite, runtime, sprite_env)
@@ -469,52 +502,114 @@ defmodule Managoat.Runtimes.ACP do
   def install(_handle, runtime, _sprite_env) when runtime in ["gemini", "opencode"], do: :ok
 
   def install(handle, runtime, sprite_env) do
-    case Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
-           env: sprite_env,
-           timeout: 180_000
-         ) do
-      {:ok, _out, 0} ->
-        :ok
+    with :ok <- write_manifest(handle, runtime) do
+      case Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
+             env: sprite_env,
+             timeout: 180_000
+           ) do
+        {:ok, _out, 0} ->
+          :ok
 
-      {:ok, out, code} ->
-        {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), 0, 500)}}
+        {:ok, out, code} ->
+          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), 0, 500)}}
 
-      {:error, reason} ->
-        {:error, {:acp_adapter_install, reason}}
+        {:error, reason} ->
+          {:error, {:acp_adapter_install, reason}}
+      end
     end
   end
 
-  defp install_script(runtime) do
-    bin = adapter_bin(runtime)
-    spec = adapter_spec(runtime)
-    version = get_in(@adapters, [runtime, :version])
+  # A failed write is not fatal: the script finds no manifest and installs
+  # with npm instead, which is slower and otherwise the same.
+  defp write_manifest(handle, runtime) do
+    case @manifests[runtime] do
+      nil ->
+        :ok
 
-    """
+      manifest ->
+        case Managoat.Sandbox.write_file(handle, manifest_path(runtime), manifest) do
+          :ok -> :ok
+          {:error, _} -> :ok
+        end
+    end
+  end
+
+  defp install_dir(runtime) do
+    %{package: package, version: version} = @adapters[runtime]
+    "/home/sprite/.local/share/managoat/acp/#{package_name(package)}@#{version}"
+  end
+
+  defp manifest_path(runtime), do: install_dir(runtime) <> ".tsv"
+
+  defp package_name(package), do: package |> String.split("/") |> List.last()
+
+  defp install_script(runtime) do
+    %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
+    dir = install_dir(runtime)
+
+    ~s"""
     set -e
     want=#{version}
-    bin=/home/sprite/.local/bin/#{bin}
-    probe() { rc=0; out=$("$bin" --version 2>/dev/null) || rc=$?; }
-    have=
-    if [ -e "$bin" ]; then
-      probe
-      # A probe killed by a signal (128+n) is a crash, not a stale install.
-      # Reinstalling would rewrite the global prefix other sessions may be
-      # running the adapter from, so probe once more and then fail.
-      if [ "$rc" -gt 128 ]; then probe; fi
-      if [ "$rc" -gt 128 ]; then
-        echo "$bin --version died on signal $((rc - 128))" >&2
-        exit "$rc"
+    dir=#{dir}
+    link=/home/sprite/.local/bin/#{bin}
+    target="$dir/node_modules/#{package}/#{entry}"
+    installed() { [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ]; }
+    #{manifest_install_fn()}
+    # No `exit` at the top level: this runs under `bash -lc`, where the builtin
+    # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
+    # fails outside a console and turned a successful check into exit 1.
+    if ! { installed && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
+      mkdir -p "$(dirname "$dir")"
+      exec 9>"$dir.lock"
+      flock 9
+      if ! installed; then
+        rm -rf "$dir.tmp"
+        mkdir -p "$dir.tmp"
+        if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
+          if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
+          rm -rf "$dir.tmp"
+          mkdir -p "$dir.tmp"
+          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund #{package}@#{version}
+        fi
+        chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        printf '%s' "$want" >"$dir.tmp/.installed"
+        rm -rf "$dir"
+        mv "$dir.tmp" "$dir"
       fi
-      if [ "$rc" -eq 0 ]; then
-        have=$(printf '%s\\n' "$out" | awk '{print $NF}' | tr -d '[:space:]')
-      fi
+      mkdir -p "$(dirname "$link")"
+      ln -sfn "$target" "$link.new"
+      mv -Tf "$link.new" "$link"
     fi
-    if [ "$have" != "$want" ]; then
-      npm install -g --no-progress --silent #{spec}
-      mkdir -p /home/sprite/.local/bin
-      ln -sf "$(npm prefix -g)/bin/#{bin}" "$bin"
-    fi
-    "$bin" --version >/dev/null
+    """
+  end
+
+  # One worker per package, 16 at a time: download, check the sha512 against
+  # the manifest's integrity, unpack. `--strip-components=1` because a
+  # tarball's top directory is named by its author, usually but not always
+  # `package/`.
+  defp manifest_install_fn do
+    ~S"""
+    manifest_install() {
+      command -v curl >/dev/null && command -v openssl >/dev/null || return 1
+      local arch libc
+      arch=$(uname -m)
+      case "$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac
+      libc=glibc
+      if ldd --version 2>&1 | grep -qi musl; then libc=musl; fi
+      mkdir -p "$2/.dl"
+      ACP_DEST=$2 ACP_ARCH=$arch ACP_LIBC=$libc xargs -d '\n' -n1 -P16 bash -c '
+        IFS=$'"'"'\t'"'"' read -r path url sri os cpu libc <<<"$1"
+        case ",$os," in ,-,|*,linux,*) ;; *) exit 0 ;; esac
+        case ",$cpu," in ,-,|*,$ACP_ARCH,*) ;; *) exit 0 ;; esac
+        case ",$libc," in ,-,|*,$ACP_LIBC,*) ;; *) exit 0 ;; esac
+        f="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__").tgz"
+        curl -fsS -o "$f" "$url" || exit 1
+        [ "sha512-$(openssl dgst -sha512 -binary "$f" | base64 -w0)" = "$sri" ] || { echo "integrity mismatch: $path" >&2; exit 1; }
+        mkdir -p "$ACP_DEST/$path"
+        tar xzf "$f" -C "$ACP_DEST/$path" --strip-components=1
+      ' _ <"$1" || return 1
+      rm -rf "$2/.dl"
+    }
     """
   end
 

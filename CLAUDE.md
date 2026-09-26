@@ -162,6 +162,10 @@ code the gate and the publish workflow read, so the two can never disagree.
   and silently downgrade every conversation to a full history replay per turn.
   The install is idempotent on the exact version — an image carrying a different
   one is corrected, not accepted — and a pin moves in a commit that says why.
+  Moving the claude pin also means regenerating its install manifest in the
+  same commit: `elixir scripts/acp-lock.exs @agentclientprotocol/claude-agent-acp
+  <version>` writes `priv/acp/claude-agent-acp@<version>.tsv`. The file name
+  carries the version, so forgetting fails the compile.
 
 - **Don't add a per-runtime workaround without its deletion condition.**
   `Managoat.Runtimes.Quirks` carries each one with the condition under which it
