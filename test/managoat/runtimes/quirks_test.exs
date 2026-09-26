@@ -78,7 +78,8 @@ defmodule Managoat.Runtimes.QuirksTest do
              :home_on_tmp
            ]
 
-    assert Quirks.for_runtime("codex") |> Enum.map(& &1.id) == [:npm_global_bin_off_path]
+    assert Quirks.for_runtime("codex") == []
+    assert :npm_global_bin_off_path in Enum.map(Quirks.for_runtime("opencode"), & &1.id)
     assert Quirks.for_runtime("nope") == []
 
     assert Quirks.get(:home_on_tmp).runtimes == ["gemini", "opencode"]

@@ -302,28 +302,29 @@ defmodule Managoat.Runtimes.Quirks do
     },
     %{
       id: :npm_global_bin_off_path,
-      runtimes: ["claude", "codex"],
-      summary: "installed ACP adapters are symlinked onto PATH by hand",
+      runtimes: ["opencode"],
+      summary: "opencode's bun-installed binary is symlinked onto PATH by hand",
       why: """
-      `npm prefix -g` on the sprite is inside the nvm tree, whose `bin/` is not
-      on the default PATH: `command -v claude-agent-acp` after a successful
-      global install returns nothing, and the spawn then fails with `command
-      not found` — which reads like a protocol bug and is not one. So the
-      install symlinks into `/home/sprite/.local/bin`, which is on PATH. bun
-      has the identical problem, handled the same way in
-      `OpenCode.prepare_sandbox/3`.
+      The package managers' global bin directories on the sprite are not on the
+      default PATH: `npm prefix -g` is inside the nvm tree, and bun's global
+      bin is its own. A global install then leaves `command -v` empty and the
+      spawn fails with `command not found`, which reads like a protocol bug and
+      is not one. So `OpenCode.prepare_sandbox/3` symlinks into
+      `/home/sprite/.local/bin`, which is on PATH. The npm-installed ACP
+      adapters used to need the same; they now install into versioned
+      directories of their own (`ACP.install/3`) and are linked there by
+      design, not as a workaround.
       """,
       upstream: {:none, "sprite base-image PATH, ours to change"},
       measured_against: "verified on a live sprite 2026-08-10, node v24.18.0",
-      implemented_by: {Managoat.Runtimes.ACP, :install, 3},
+      implemented_by: {Managoat.Runtimes.OpenCode, :prepare_sandbox, 3},
       reprobe: """
-      `npm install -g <anything with a bin>` on a fresh sandbox, then
+      `bun install -g <anything with a bin>` on a fresh sandbox, then
       `command -v` it without the symlink.
       """,
       delete_when: """
-      The sprite's default PATH includes npm's and bun's global bin
-      directories. Both symlink steps go, here and in
-      `OpenCode.prepare_sandbox/3`.
+      The sprite's default PATH includes bun's global bin directory. Then
+      the symlink step in `OpenCode.prepare_sandbox/3` goes.
       """
     }
   ]

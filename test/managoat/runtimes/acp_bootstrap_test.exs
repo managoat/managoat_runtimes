@@ -28,6 +28,8 @@ defmodule Managoat.Runtimes.ACPBootstrapTest do
       assert {"", 0} = System.cmd("bash", ["-n", "-c", wrapper])
       assert {"", 0} = System.cmd("bash", ["-n", "-c", installer])
 
+      stub(Sandbox, :write_file, fn :handle, _path, _body -> :ok end)
+
       expect(Sandbox, :exec, fn :handle, "bash", ["-lc", script], _opts ->
         assert script == installer
         assert script =~ ACP.adapter_spec(runtime)
