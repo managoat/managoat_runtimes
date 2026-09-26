@@ -340,6 +340,65 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
 
     @tag :tmp_dir
+    test "an install from before the launcher gains one without reinstalling", %{tmp_dir: home} do
+      target = installed_fixture(home)
+      File.rm!(target)
+      File.rm!(Path.join(versioned_dir(home), ".node"))
+
+      entry =
+        Path.join(
+          versioned_dir(home),
+          "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+        )
+
+      File.ln_s!(entry, Path.join(home, ".local/bin/claude-agent-acp"))
+
+      assert {_out, 0, calls} = run_installer(home)
+      assert calls == ""
+      assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) == target
+      assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/node/bin/node\n"
+      assert {_, 0} = System.cmd("test", ["-x", target])
+    end
+
+    @tag :tmp_dir
+    test "the launcher runs the entry on the recorded node, not the one on PATH", %{tmp_dir: home} do
+      launch = installed_fixture(home)
+      recorded = fake_node(home, "recorded")
+      File.write!(Path.join(versioned_dir(home), ".node"), recorded <> "\n")
+      on_path = fake_node(Path.join(home, "path"), "shim")
+
+      {out, 0} =
+        System.cmd(launch, ["--flag", "two words"],
+          env: [{"PATH", Path.dirname(on_path) <> ":/usr/bin:/bin"}]
+        )
+
+      entry =
+        Path.join(
+          versioned_dir(home),
+          "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+        )
+
+      assert out == "recorded|#{entry}|--flag|two words\n"
+    end
+
+    @tag :tmp_dir
+    test "a recorded node that is gone or relative falls back to the one on PATH", %{
+      tmp_dir: home
+    } do
+      launch = installed_fixture(home)
+      on_path = fake_node(Path.join(home, "path"), "shim")
+      env = [{"PATH", Path.dirname(on_path) <> ":/usr/bin:/bin"}]
+
+      for recorded <- ["/no/such/node\n", "node\n", ""] do
+        File.write!(Path.join(versioned_dir(home), ".node"), recorded)
+        assert {"shim|" <> _, 0} = System.cmd(launch, [], env: env)
+      end
+
+      File.rm!(Path.join(versioned_dir(home), ".node"))
+      assert {"shim|" <> _, 0} = System.cmd(launch, [], env: env)
+    end
+
+    @tag :tmp_dir
     test "the manifest installs the matching platform package, checked and unpacked", %{
       tmp_dir: home
     } do
@@ -383,7 +442,14 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert timing =~ ~r/^package node_modules\/\S+ \d+$/m
 
       entry = Path.join(dir, "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js")
-      assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) == entry
+
+      assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) ==
+               Path.join(dir, "launch")
+
+      assert File.read!(Path.join(dir, "launch")) =~ entry
+      refute File.read!(Path.join(dir, "launch")) =~ ".tmp"
+      assert File.read!(Path.join(dir, ".node")) == "/opt/node/bin/node\n"
+      refute File.exists?(dir <> ".node")
       assert %{mode: mode} = File.stat!(entry)
       assert Bitwise.band(mode, 0o111) != 0
     end
@@ -411,6 +477,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert calls =~ "npm install --prefix"
       assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
       assert File.read!(Path.join(dir, ".install-timing")) =~ ~r/^method npm$/m
+      assert File.read!(Path.join(dir, ".node")) == "/opt/node/bin/node\n"
     end
 
     @tag :tmp_dir
@@ -448,7 +515,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     {"bash", ["-c", _wrapper, _name, script | _]} = ACP.bootstrap_command("claude", "true", [])
     script = String.replace(script, "/home/sprite", home)
 
+    # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""
+    node() { echo /opt/node/bin/node; }
     npm() {
       echo "npm $*" >>#{calls}
       local d=$3
@@ -466,14 +535,23 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   defp versioned_dir(home),
     do: Path.join(home, ".local/share/managoat/acp/claude-agent-acp@0.81.2")
 
+  # An installed pin as the installer leaves it, launcher included, but with
+  # no PATH link and no record of the npm call it took; answers the launcher's
+  # path, which is what the link points at.
   defp installed_fixture(home) do
-    dir = versioned_dir(home)
-    entry = Path.join(dir, "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js")
-    File.mkdir_p!(Path.dirname(entry))
-    File.write!(entry, "")
-    File.write!(Path.join(dir, ".installed"), "0.81.2")
-    File.mkdir_p!(Path.join(home, ".local/bin"))
-    entry
+    {_out, 0, _calls} = run_installer(home)
+    File.rm!(Path.join(home, "npm-calls"))
+    File.rm!(Path.join(home, ".local/bin/claude-agent-acp"))
+    Path.join(versioned_dir(home), "launch")
+  end
+
+  # A `node` that prints its name and argv, `|`-separated.
+  defp fake_node(dir, name) do
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "node")
+    File.write!(path, ~s(#!/bin/sh\nIFS='|'; echo "#{name}|$*"\n))
+    File.chmod!(path, 0o755)
+    path
   end
 
   # A package tarball on local disk, as a manifest row with a file:// URL and

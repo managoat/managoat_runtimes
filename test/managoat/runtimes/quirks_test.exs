@@ -78,7 +78,7 @@ defmodule Managoat.Runtimes.QuirksTest do
              :home_on_tmp
            ]
 
-    assert Quirks.for_runtime("codex") == []
+    assert Enum.map(Quirks.for_runtime("codex"), & &1.id) == [:sprite_node_shim]
     assert :npm_global_bin_off_path in Enum.map(Quirks.for_runtime("opencode"), & &1.id)
     assert Quirks.for_runtime("nope") == []
 
