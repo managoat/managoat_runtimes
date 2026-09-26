@@ -465,7 +465,10 @@ defmodule Managoat.Runtimes.ACP do
   Each pinned version installs into its own directory,
   `/home/sprite/.local/share/managoat/acp/<name>@<version>`, which gets an
   `.installed` marker only once complete; `/home/sprite/.local/bin/<bin>`
-  (on the sprite's PATH) is then pointed at it by an atomic rename. So the
+  (on the sprite's PATH) is then pointed at its `launch` script by an atomic
+  rename. The launcher starts the entry on the Node binary the install
+  recorded, not on `node` from PATH: a sprite's is an nvm shim that added
+  ~0.8 s to every adapter start. So the
   check that runs before every spawn is two file tests and no process start:
   the old one started the adapter twice to read `--version`, ~3.6 s on a
   fresh sprite (managoat/fountain, measured 2026-09-26). And an upgrade never
@@ -552,14 +555,16 @@ defmodule Managoat.Runtimes.ACP do
     want=#{version}
     dir=#{dir}
     link=/home/sprite/.local/bin/#{bin}
-    target="$dir/node_modules/#{package}/#{entry}"
+    entry="$dir/node_modules/#{package}/#{entry}"
+    target="$dir/launch"
     installed() { [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ]; }
     now() { date +%s.%3N; }
     #{manifest_install_fn()}
+    #{launcher_fn()}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
     # fails outside a console and turned a successful check into exit 1.
-    if ! { installed && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
+    if ! { installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
       mkdir -p "$(dirname "$dir")"
       exec 9>"$dir.lock"
       flock 9
@@ -567,6 +572,11 @@ defmodule Managoat.Runtimes.ACP do
         t_start=$(now)
         rm -rf "$dir.tmp"
         mkdir -p "$dir.tmp"
+        # Which Node the launcher will run, resolved while the packages
+        # download: through a PATH shim this takes as long as the shim does.
+        rm -f "$dir.node"
+        node -p process.execPath >"$dir.node" 2>/dev/null &
+        node_pid=$!
         how=manifest
         if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
           if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
@@ -577,6 +587,8 @@ defmodule Managoat.Runtimes.ACP do
         fi
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+        write_launcher "$dir.tmp"
         # When the install happened, and where its time went, for the next
         # slow one to explain itself: the phases, then the slowest packages.
         {
@@ -588,10 +600,39 @@ defmodule Managoat.Runtimes.ACP do
         rm -rf "$dir"
         mv "$dir.tmp" "$dir"
       fi
+      # An install from before the launcher existed: add it, don't reinstall.
+      if [ ! -x "$target" ]; then
+        node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
+        write_launcher "$dir"
+      fi
       mkdir -p "$(dirname "$link")"
       ln -sfn "$target" "$link.new"
       mv -Tf "$link.new" "$link"
     fi
+    """
+  end
+
+  # `write_launcher DIR` writes DIR/launch, which the PATH link points at: it
+  # execs the entry on the Node recorded in `.node` at install. The entry's own
+  # `#!/usr/bin/env node` finds `node` on PATH, and a sprite's is an nvm shim,
+  # a bash script that took ~0.8 s to start where the binary it wraps took
+  # 0.04 s -- paid on every adapter start (managoat/fountain, measured
+  # 2026-09-26). A `.node` that is missing, not absolute or no longer
+  # executable (the image moved Node) falls back to `node` on PATH, which is
+  # only slower. The launcher names the final directory, not DIR, since an
+  # install writes it into staging.
+  defp launcher_fn do
+    ~S"""
+    write_launcher() {
+      printf '%s\n' '#!/bin/sh' \
+        "d='$dir'" \
+        'n=' \
+        '[ -f "$d/.node" ] && read -r n <"$d/.node"' \
+        'case $n in /*) [ -x "$n" ] || n=node ;; *) n=node ;; esac' \
+        "exec \"\$n\" '$entry' \"\$@\"" >"$1/launch.new"
+      chmod +x "$1/launch.new"
+      mv -f "$1/launch.new" "$1/launch"
+    }
     """
   end
 

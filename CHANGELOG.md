@@ -10,6 +10,19 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-26
+
+- An npm-packaged adapter (claude, codex) now starts on the Node binary its
+  install recorded, not on `node` from PATH. A sprite's `node` is an nvm shim
+  that took ~0.8 s to start against 0.04 s for the binary it wraps, and every
+  adapter start paid it: the bootstrap wrapper reached `initialize` in
+  0.93–1.61 s through the shim and 0.38–0.55 s through the launcher, on fresh
+  sprites. `ACP.install/3` resolves the binary while the packages download and
+  points `~/.local/bin/<bin>` at a `launch` script in the versioned directory,
+  which falls back to PATH's `node` if the record is missing or stale. An
+  existing install gains the launcher on its next check without reinstalling.
+  Registered as `:sprite_node_shim` in `Managoat.Runtimes.Quirks`.
+
 ## [0.5.3] - 2026-09-26
 
 - `Claude.default_env/2` adds `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. On a

@@ -335,6 +335,34 @@ defmodule Managoat.Runtimes.Quirks do
       """
     },
     %{
+      id: :sprite_node_shim,
+      runtimes: ["claude", "codex"],
+      summary: "npm-packaged adapters start on the recorded Node, not PATH's nvm shim",
+      why: """
+      A sprite's `node` on PATH is `/.sprite/bin/node`, a bash script that sets
+      up nvm and then runs the real binary. It took ~0.8 s to start where the
+      binary took 0.04 s, and the adapter's `#!/usr/bin/env node` paid that on
+      every start: cold, reattach and wake. `ACP.install/3` records the real
+      binary (`node -p process.execPath`, run while the packages download) and
+      points the PATH link at a launcher that execs it, falling back to `node`
+      on PATH when the record is missing or stale.
+      """,
+      upstream: {:none, "the sprite base image's nvm shim; report it to Sprites"},
+      measured_against:
+        "claude-agent-acp 0.81.2 on fresh sprites, node v24.18.0, 2026-09-26: " <>
+          "bootstrap wrapper to `initialize` 0.93-1.61 s through the shim, " <>
+          "0.38-0.55 s through the launcher",
+      implemented_by: {Managoat.Runtimes.ACP, :install, 3},
+      reprobe: """
+      On a fresh sandbox, time `node -e 0` against `$(node -p
+      process.execPath) -e 0`, three times each.
+      """,
+      delete_when: """
+      `node` on the sprite's PATH starts within ~50 ms of the binary it runs.
+      Then the launcher can go and the link can point at the entry again.
+      """
+    },
+    %{
       id: :npm_global_bin_off_path,
       runtimes: ["opencode"],
       summary: "opencode's bun-installed binary is symlinked onto PATH by hand",
