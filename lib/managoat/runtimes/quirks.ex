@@ -274,6 +274,40 @@ defmodule Managoat.Runtimes.Quirks do
       """
     },
     %{
+      id: :claude_nonessential_traffic,
+      runtimes: ["claude"],
+      summary: "claude runs with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+      why: """
+      The first session on a fresh sandbox spent ~1.9 s in the SDK's
+      `sdk-initialize` (the CLI starting), where every later session took
+      ~0.4 s. It was not the disk (running the binary from tmpfs changed
+      nothing), not a cache (nothing is written outside the config dir), and
+      not DNS or connection setup (pre-warming them changed nothing). With the
+      CLI's non-essential traffic off, the first session took 0.33–0.76 s.
+      The flag also stops the CLI's auto-updater, telemetry, error reporting
+      and `/bug`; the model list, Fable and the Opus alias are unchanged on an
+      API key and on an OAuth token. `Claude.default_env/2` sets it.
+      """,
+      upstream:
+        {:none,
+         "the CLI waiting on its own non-essential calls at first start; file one " <>
+           "if a first start should not block on them"},
+      measured_against:
+        "claude-agent-acp 0.81.2 (CLI 2.1.280) on fresh sprites, 2026-09-26: first " <>
+          "sdk-initialize 1.88/1.93/0.39 s without the flag, 0.76/0.33/0.63 s with it",
+      implemented_by: {Managoat.Runtimes.Claude, :default_env, 2},
+      reprobe: """
+      On a fresh sandbox, time the adapter's first `session/new` (its
+      `[session/create] phase=sdk-initialize` log line) with and without the
+      flag, three times each.
+      """,
+      delete_when: """
+      A first start without the flag is as fast as with it, or a host needs the
+      CLI's telemetry or auto-update. Then drop the pair from
+      `Claude.default_env/2`.
+      """
+    },
+    %{
       id: :claude_thinking_summaries,
       runtimes: ["claude"],
       summary: "claude streams thinking only with showThinkingSummaries set",
