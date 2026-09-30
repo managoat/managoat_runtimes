@@ -1,7 +1,7 @@
 defmodule Managoat.Runtimes.MixProject do
   use Mix.Project
 
-  @version "0.5.4"
+  @version "0.5.5"
   @source_url "https://github.com/managoat/managoat_runtimes"
 
   def project do
@@ -57,7 +57,7 @@ defmodule Managoat.Runtimes.MixProject do
       {:managoat_sandbox, "~> 0.2.0 or ~> 0.3.0 or ~> 0.4.0 or ~> 0.5.0"},
       # Typed execution limits require ACP 0.4. Its unknown-stop behavior is
       # fail-closed: consumers must not interpret malformed stops as success.
-      {:managoat_acp, "~> 0.4.0"},
+      {:managoat_acp, "~> 0.4.0 or ~> 0.5.0"},
       # The runtime config files (claude's .mcp.json and settings.json,
       # gemini's settings.json) are JSON.
       {:jason, "~> 1.2"},

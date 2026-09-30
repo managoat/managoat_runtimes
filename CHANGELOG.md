@@ -10,6 +10,15 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-30
+
+- Accepts `managoat_acp` 0.5 as well as 0.4. The 0.5 peer adds session
+  config options (managoat/fountain#2537), and its default client
+  capabilities declare `session.configOptions.boolean`, which is what
+  `ACP.initialize_params/0` now sends. Nothing this library calls
+  (`ExecutionLimits.new/2`, `Protocol.initialize_params/1`,
+  `Protocol.default_client_capabilities/0`) changed.
+
 ## [0.5.4] - 2026-09-26
 
 - An npm-packaged adapter (claude, codex) now starts on the Node binary its
