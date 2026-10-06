@@ -149,11 +149,11 @@ defmodule Managoat.Runtimes do
       mid-conversation fall back to the API key when an org refuses the OAuth
       token (#655), are provider policy with no analogue on the others.
     * **Whether an env var works at all.** codex 0.118+ does not read
-      `OPENAI_API_KEY` at exec time. It reads `~/.codex/auth.json`, which only
+      `OPENAI_API_KEY` at exec time. It reads `~/.codex/auth.json`, the file
       `codex login --with-api-key` writes, so its credential is delivered by
-      `prepare_sandbox/3` instead — see there.
+      `prepare_sandbox/3` writing that file instead — see there.
 
-  So the shape is two-of-four, not four-of-four: an env var, or a login exec.
+  So the shape is two-of-four, not four-of-four: an env var, or a file.
   Worth restating whenever a fifth runtime arrives, because "just add a column
   for the variable name" is right up until it is codex.
 
@@ -180,9 +180,9 @@ defmodule Managoat.Runtimes do
 
   @doc """
   Optionally run any sprite-side bootstrap that has to happen *before*
-  the first turn — e.g. codex needs `codex login --with-api-key` to
-  persist credentials into `~/.codex/auth.json` since it doesn't read
-  `OPENAI_API_KEY` from the live process env.
+  the first turn — e.g. codex needs its credentials in
+  `~/.codex/auth.json` since it doesn't read `OPENAI_API_KEY` from the live
+  process env.
 
   Receives the same `sprite_env` pairs the spawn will use. Implementers
   pull whichever keys they need out of that list. No-op by default.
@@ -190,7 +190,7 @@ defmodule Managoat.Runtimes do
   ## This is the escape hatch, and it should stay one
 
   Three runtimes implement it and each does something genuinely imperative —
-  a login that consumes a key on stdin, a `bun install`, a `git init`. None
+  a credential file written from the key, a `bun install`, a `git init`. None
   of those is expressible as data, and an abstraction that swallowed them
   would cost more than the duplication it removed. What *was* data (where the
   workspace lives, what HOME is) has already moved to

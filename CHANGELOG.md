@@ -10,6 +10,21 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-10-06
+
+- Codex: `prepare_sandbox/3` writes `~/.codex/auth.json` (mode 600,
+  `{"auth_mode": "apikey", "OPENAI_API_KEY": ...}`, the file `codex login
+  --with-api-key` 0.147.0 writes) instead of running the login. The login
+  needed a `codex` binary on PATH, which the Sprites and E2B images carry and
+  a self-hosted runner does not, so every codex conversation on a runner
+  failed at provision with `{:codex_login_write, :command_exited}`. A refused
+  write is `{:codex_auth_write, reason}`; the `:codex_login_*` errors are gone.
+- Gemini: `prepare_sandbox/3` installs `@google/gemini-cli@0.59.0` with
+  `npm install -g` when `gemini` is not on PATH. Gemini speaks ACP natively, so
+  nothing else brought the CLI to a sandbox whose image lacks it, and every
+  gemini turn on a self-hosted runner exited 127. An image's own copy is
+  used as before. The step's timeout is 180 s, up from 30 s, for the install.
+
 ## [0.5.5] - 2026-09-30
 
 - Accepts `managoat_acp` 0.5 as well as 0.4. The 0.5 peer adds session

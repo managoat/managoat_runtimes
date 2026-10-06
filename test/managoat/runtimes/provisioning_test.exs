@@ -26,81 +26,29 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert Codex.default_env(nil, %{}) == []
     end
 
-    test "prepare_sandbox/3 logs in with the key on stdin, then waits for the exit" do
-      test = self()
-      command = %Sandbox.Command{provider: :sprites, ref: make_ref()}
-
-      expect(Sandbox, :spawn, fn @handle, "codex", ["login", "--with-api-key"], opts ->
-        assert opts[:stdin] == true
-        assert opts[:owner] == test
-        {:ok, command}
-      end)
-
-      expect(Sandbox, :write_stdin, fn ^command, "sk-1\n" ->
-        # The CLI exits after it has read the key; the owner sees the exit.
-        send(test, {:exit, %{ref: command.ref}, 0})
+    test "prepare_sandbox/3 writes auth.json as `codex login --with-api-key` does" do
+      expect(Sandbox, :write_file, fn @handle, "/home/sprite/.codex/auth.json", body, opts ->
+        assert opts[:mode] == 0o600
+        assert Jason.decode!(body) == %{"auth_mode" => "apikey", "OPENAI_API_KEY" => "sk-1"}
         :ok
       end)
 
-      expect(Sandbox, :close_stdin, fn ^command -> :ok end)
+      # No CLI involved: a sandbox without `codex` on PATH (a self-hosted
+      # runner) logs in the same way.
+      reject(&Sandbox.spawn/4)
 
       assert :ok = Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk-1"}])
     end
 
-    test "a non-zero login exit is reported with its code" do
-      test = self()
-      command = %Sandbox.Command{provider: :sprites, ref: make_ref()}
+    test "a refused write is a tagged error" do
+      expect(Sandbox, :write_file, fn _h, _p, _b, _o -> {:error, {:unavailable, :closed}} end)
 
-      expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:ok, command} end)
-
-      expect(Sandbox, :write_stdin, fn ^command, _ ->
-        send(test, {:exit, %{ref: command.ref}, 3})
-        :ok
-      end)
-
-      expect(Sandbox, :close_stdin, fn ^command -> :ok end)
-
-      assert {:error, {:codex_login_exit, 3}} =
-               Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk"}])
-    end
-
-    test "a transport that drops before the exit is an error, not a successful login" do
-      # managoat_sandbox 0.2.0: a stream that closes with no exit frame is
-      # `{:error, _, :closed_before_exit}`. Under 0.1.0 it was a synthesised
-      # `{:exit, _, 0}`, so this returned :ok and provisioning carried on
-      # with a sandbox that had never logged in.
-      test = self()
-      command = %Sandbox.Command{provider: :sprites, ref: make_ref()}
-
-      expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:ok, command} end)
-
-      expect(Sandbox, :write_stdin, fn ^command, _ ->
-        send(test, {:error, %{ref: command.ref}, :closed_before_exit})
-        :ok
-      end)
-
-      expect(Sandbox, :close_stdin, fn ^command -> :ok end)
-
-      assert {:error, {:codex_login_transport, :closed_before_exit}} =
-               Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk"}])
-    end
-
-    test "a refused stdin write and a failed spawn are tagged errors, not exits" do
-      command = %Sandbox.Command{provider: :sprites, ref: make_ref()}
-      expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:ok, command} end)
-      expect(Sandbox, :write_stdin, fn ^command, _ -> {:error, :closed} end)
-
-      assert {:error, {:codex_login_write, :closed}} =
-               Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk"}])
-
-      expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:error, :unavailable} end)
-
-      assert {:error, {:codex_login_spawn, {:error, :unavailable}}} =
+      assert {:error, {:codex_auth_write, {:unavailable, :closed}}} =
                Codex.prepare_sandbox(@handle, nil, [{"OPENAI_API_KEY", "sk"}])
     end
 
     test "no key in the env is named, rather than left for the first turn to 401 on" do
-      reject(&Sandbox.spawn/4)
+      reject(&Sandbox.write_file/4)
       assert {:error, :missing_openai_api_key} = Codex.prepare_sandbox(@handle, nil, [])
 
       assert {:error, :missing_openai_api_key} =
@@ -196,6 +144,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert_receive {:exec, script, ^env}
       assert script =~ "/tmp/gemini-workspace/.git"
       assert script =~ "git init -q"
+      # The CLI is installed, pinned, only where the image did not bring it.
+      assert script =~ "if ! command -v gemini >/dev/null; then"
+      assert script =~ "npm install -g --no-progress --silent @google/gemini-cli@0.59.0"
     end
 
     test "a failed workspace init is a tagged error" do

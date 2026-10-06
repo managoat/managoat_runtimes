@@ -39,59 +39,40 @@ defmodule Managoat.Runtimes.Codex do
   # the bare CLI. An agent opted out of ACP runs its legacy turns without MCP
   # servers.
 
-  # codex 0.118+ does NOT read OPENAI_API_KEY at exec time — it only reads
-  # `~/.codex/auth.json`, which `codex login --with-api-key` writes by
-  # consuming the key on stdin. Run the login once at provision time.
+  # codex 0.118+ does NOT read OPENAI_API_KEY at exec time; it reads
+  # `<CODEX_HOME>/auth.json`, and codex-acp runs on the same store. Write that
+  # file directly, in the shape `codex login --with-api-key` writes (checked
+  # against 0.147.0: mode 600, `auth_mode` "apikey"), rather than running the
+  # login.
+  #
+  # The login needed a `codex` binary on PATH, which the Sprites and E2B images
+  # carry and a self-hosted runner does not: there `codex login` exited before
+  # it read the key and every codex conversation failed at provision with
+  # `{:codex_login_write, :command_exited}` (managoat/fountain, 2026-10-06).
+  # The file write needs nothing installed, keeps the key off argv and stdin,
+  # and costs one call instead of a spawn and its exit.
+  #
+  # A ChatGPT grant's `auth.json` is the host's, in a CODEX_HOME of its own
+  # (Fountain's CodexChatGPT); an API key uses the shared `~/.codex`.
   @impl true
   def prepare_sandbox(handle, _agent, sprite_env) do
     case List.keyfind(sprite_env, "OPENAI_API_KEY", 0) do
       {"OPENAI_API_KEY", key} when is_binary(key) and key != "" ->
-        case Managoat.Sandbox.spawn(handle, "codex", ["login", "--with-api-key"],
-               owner: self(),
-               stdin: true,
-               env: sprite_env
-             ) do
-          {:ok, command} ->
-            # Same exposure as #603: `codex login` exiting before it reads the
-            # key — a missing binary, a bad flag — would otherwise exit whoever
-            # is provisioning, rather than returning an error they can report.
-            # write_stdin/2 is total by contract, so that exposure stays closed.
-            case Managoat.Sandbox.write_stdin(command, key <> "\n") do
-              :ok ->
-                Managoat.Sandbox.close_stdin(command)
-
-                receive do
-                  {:exit, %{ref: ref}, 0} when ref == command.ref ->
-                    :ok
-
-                  {:exit, %{ref: ref}, code} when ref == command.ref ->
-                    {:error, {:codex_login_exit, code}}
-
-                  # The other terminal frame. Since managoat_sandbox 0.2.0 a
-                  # transport that goes away before the exit arrives says so
-                  # (`:closed_before_exit`) instead of fabricating an exit 0
-                  # — which used to land on the clause above and report a
-                  # login that never happened as a success. Without this
-                  # clause it would be a 30-second wait for a frame that has
-                  # already been sent.
-                  {:error, %{ref: ref}, reason} when ref == command.ref ->
-                    {:error, {:codex_login_transport, reason}}
-                after
-                  30_000 -> {:error, :codex_login_timeout}
-                end
-
-              {:error, reason} ->
-                {:error, {:codex_login_write, reason}}
-            end
-
-          err ->
-            {:error, {:codex_login_spawn, err}}
+        case Managoat.Sandbox.write_file(handle, auth_path(), auth_json(key), mode: 0o600) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:codex_auth_write, reason}}
         end
 
       _ ->
         # No key in env — surface that explicitly; without it the
-        # subsequent `codex exec` will 401 with a confusing message.
+        # subsequent turn will 401 with a confusing message.
         {:error, :missing_openai_api_key}
     end
   end
+
+  @doc false
+  def auth_path, do: Path.join(Layout.config_root(@runtime), "auth.json")
+
+  @doc false
+  def auth_json(key), do: Jason.encode!(%{"auth_mode" => "apikey", "OPENAI_API_KEY" => key})
 end

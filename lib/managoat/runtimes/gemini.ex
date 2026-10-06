@@ -97,13 +97,24 @@ defmodule Managoat.Runtimes.Gemini do
     end
   end
 
-  # Make sure the workspace exists and is a git repo; gemini's
-  # MemoryDiscovery is happy as long as it finds *some* .git when it
-  # walks up from cwd.
+  # The CLI the image would carry, for a sandbox that has none. Gemini speaks
+  # ACP natively, so there is no adapter install to bring it; the Sprites and
+  # E2B images ship it, and a self-hosted runner does not, where every turn
+  # exited 127 (`gemini: No such file or directory`, 2026-10-06). Pinned
+  # because this install is ours: 0.59.0 is the newest release the quirks in
+  # `Managoat.Runtimes.Quirks` were measured against. An image's own copy wins.
+  @cli_package "@google/gemini-cli@0.59.0"
+
+  # Install the CLI when it is missing, then make sure the workspace exists
+  # and is a git repo; gemini's MemoryDiscovery is happy as long as it finds
+  # *some* .git when it walks up from cwd.
   @impl true
   def prepare_sandbox(handle, _agent, sprite_env) do
     script = """
     set -e
+    if ! command -v gemini >/dev/null; then
+      npm install -g --no-progress --silent #{@cli_package}
+    fi
     if [ ! -d #{@workdir}/.git ]; then
       mkdir -p #{@workdir}
       cd #{@workdir}
@@ -117,9 +128,11 @@ defmodule Managoat.Runtimes.Gemini do
     # be on disk before the first turn ends, since that is when it first runs.
     _ = Managoat.Runtimes.Gemini.SessionStore.install(handle)
 
+    # Long enough for the ~120 MB install on a sandbox without the CLI; a
+    # sandbox with it skips the install and returns in well under a second.
     case Managoat.Sandbox.exec(handle, "bash", ["-lc", script],
            env: sprite_env,
-           timeout: 30_000
+           timeout: 180_000
          ) do
       {:ok, _out, 0} -> :ok
       {:ok, _out, code} -> {:error, {:gemini_workspace_init_exit, code}}
