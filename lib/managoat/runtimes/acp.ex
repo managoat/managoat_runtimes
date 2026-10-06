@@ -186,9 +186,9 @@ defmodule Managoat.Runtimes.ACP do
     },
     # Adapter, on the Codex App Server. The `zed-industries/codex-acp` that
     # earlier drafts named is archived; this is its successor under the
-    # protocol org. Auth is unchanged: `Codex.prepare_sandbox/3` still runs
-    # `codex login --with-api-key`, and OPENAI_API_KEY is still exported, so
-    # the adapter inherits whichever the CLI would have used.
+    # protocol org. Auth: `Codex.prepare_sandbox/3` writes the `auth.json`
+    # that `codex login --with-api-key` would, and OPENAI_API_KEY is still
+    # exported, so the adapter inherits whichever the CLI would have used.
     "codex" => %{
       bin: "codex-acp",
       args: [],

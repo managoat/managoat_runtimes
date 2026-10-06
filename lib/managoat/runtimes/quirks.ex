@@ -29,9 +29,9 @@ defmodule Managoat.Runtimes.Quirks do
   ## What is not a quirk
 
   A runtime doing something *unusual* is not a quirk. codex delivering its
-  credential through `codex login --with-api-key` rather than
-  `OPENAI_API_KEY` looks like one and is not: that is codex's documented auth
-  mechanism, no upstream fix would remove it, and there is no condition under
+  credential through `~/.codex/auth.json` (the file `codex login
+  --with-api-key` writes) rather than `OPENAI_API_KEY` looks like one and is
+  not: that is codex's documented auth mechanism, no upstream fix would remove it, and there is no condition under
   which we stop doing it. It belongs to the irreducible tier described in
   `Managoat.Runtimes`. The test for a quirk is whether you can state what
   would have to change for the code to be deleted. If you cannot, it is not a
