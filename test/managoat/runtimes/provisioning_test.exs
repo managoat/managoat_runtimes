@@ -144,6 +144,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert_receive {:exec, script, ^env}
       assert script =~ "/tmp/gemini-workspace/.git"
       assert script =~ "git init -q"
+      # The CLI is installed, pinned, only where the image did not bring it.
+      assert script =~ "if ! command -v gemini >/dev/null; then"
+      assert script =~ "npm install -g --no-progress --silent @google/gemini-cli@0.59.0"
     end
 
     test "a failed workspace init is a tagged error" do
