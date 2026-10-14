@@ -10,6 +10,15 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-10-14
+
+- Accepts `managoat_acp` 0.6 as well as 0.4 and 0.5. The 0.6 peer puts a
+  session config option that only one prompt asked for back on the next turn
+  and reports it with a new owner payload, `{:config_restored, id,
+  confirmed}`. Nothing this library calls (`ExecutionLimits.new/2`,
+  `Protocol.initialize_params/1`, `Protocol.default_client_capabilities/0`)
+  changed.
+
 ## [0.5.6] - 2026-10-06
 
 - Codex: `prepare_sandbox/3` writes `~/.codex/auth.json` (mode 600,
