@@ -1,5 +1,13 @@
 # Managoat.Runtimes
 
+> **Archived 2026-10-15.** This library has been folded back into
+> [Fountain](https://github.com/managoat/fountain), its only maintained consumer,
+> at [`apps/fountain/lib/managoat/runtimes`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/runtimes)
+> ([managoat/fountain#2737](https://github.com/managoat/fountain/pull/2737)).
+> Every release on Hex is retired; they stay installable, but there will be no
+> further releases.
+
+
 How a coding agent CLI — claude, codex, gemini or opencode — gets into a
 sandbox and comes up speaking the [Agent Client Protocol](https://agentclientprotocol.com).
 The protocol session itself is [`managoat_acp`](https://hex.pm/packages/managoat_acp);
